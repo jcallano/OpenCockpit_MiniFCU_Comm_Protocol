@@ -1,0 +1,94 @@
+# MiniFCU Interface Reverse Engineering & Emulator
+
+This repository documents the serial protocol used by the **miniFCU** autopilot interface (A320 style) and provides a Python emulator that mimics the hardware behavior. 
+
+This project allows developers to:
+1. Understand how the proprietary Windows software communicates with the hardware.
+2. Build custom drivers for Linux (Raspberry Pi/Orange Pi).
+3. Interface the miniFCU with custom flight sim logic without the original bridge software.
+
+## 🕵️ Reverse Engineering Findings
+
+The protocol is **ASCII-based** over a standard USB Serial connection (CH340 chip).
+
+### Connection Settings
+* **Baud Rate:** 9600 bps (Critical)
+* **Data Bits:** 8, **Parity:** None, **Stop Bits:** 1
+* **Signaling:** **DTR and RTS must be set to TRUE** to wake up the microcontroller.
+
+### 🤝 The Handshake (Critical)
+The official Windows software will **not** connect unless the device responds correctly to the initialization sequence.
+
+
+
+1.  **PC sends:** `C,` (Check/Connect)
+2.  **Device MUST respond:** `901;956;959;` (Firmware/Device ID signature)
+    * *If this response is missing or incorrect, the software terminates the connection.*
+
+### ❤️ Keep-Alive & Polling
+Once connected, the PC polls the device approximately every 500ms.
+
+1.  **PC sends:** `6,`
+2.  **Device responds:** `99;95;...` (Current state of buttons/knobs).
+
+### 📝 Data Format
+
+**PC to Device (Display Updates):**
+* Terminator: `,` (Comma)
+* Format: `[Letter][Value],`
+
+| Command | Function | Example |
+| :--- | :--- | :--- |
+| `A` | **A**ltitude | `A15000,` (Set Alt to 15000) |
+| `S` | **S**peed | `S250,` (Set Spd to 250) |
+| `H` | **H**eading | `H120,` (Set Hdg to 120) |
+| `V` | **V**ertical Speed | `V1800,` (Set V/S to +1800) |
+| `B` | **B**arometer (QNH) | `B1013,` |
+
+**Device to PC (Inputs):**
+* Terminator: `;` (Semicolon)
+* **Knobs:** `[ID],[Value];` (e.g., `14,101;`)
+* **Buttons:** `[ID];` (e.g., `51;` for AP1)
+
+| Input ID | Function | Notes |
+| :--- | :--- | :--- |
+| `14` | Speed Knob | Value increments/decrements |
+| `13` | Heading Knob | Value increments/decrements |
+| `17` | Altitude Knob | Value increments/decrements |
+| `22` | V/S Knob | Value increments/decrements |
+| `51` | AP1 Button | Toggle |
+| `50` | A/THR Button | Toggle |
+| `54` | LOC Button | Toggle |
+
+---
+
+## 🐍 Python Emulator
+
+The included script `minifcu_emulator.py` acts as a **Virtual MiniFCU**. It connects to the official Windows Software (via a virtual COM port pair) and tricks it into believing real hardware is attached.
+
+### Usage
+
+1.  **Install dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+2.  **Setup Virtual Serial Ports:**
+    * Use software like *com0com* or *Virtual Serial Port Driver*.
+    * Create a pair: **COM16** <-> **COM17**.
+3.  **Run the Official Software:**
+    * Configure it to connect to **COM16**.
+4.  **Run the Emulator:**
+    ```bash
+    python minifcu_emulator.py
+    ```
+    * The script will attach to **COM17**.
+
+### Hardware Implementation (Orange Pi / ESP32)
+To implement this on an Orange Pi or custom microcontroller to replace the PC software:
+1.  Initialize Serial at 9600 baud.
+2.  Send `C,` immediately upon connection.
+3.  Send `6,` every 500ms to keep the screen active.
+4.  Parse incoming knob data ending in `;`.
+
+## Credits
+Reverse engineered using Man-in-the-Middle serial sniffing techniques.
