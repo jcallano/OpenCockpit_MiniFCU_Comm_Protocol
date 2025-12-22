@@ -34,6 +34,8 @@ Once connected, the PC polls the device approximately every 500ms.
 
 # 📑 MiniFCU & EFIS Protocol Cheat Sheet
 
+# 📑 MiniFCU & EFIS Protocol Cheat Sheet
+
 All communication is ASCII-based.
 - Baud Rate: 9600
 - Data Bits: 8, Parity: None, Stop Bits: 1
@@ -98,18 +100,29 @@ To control LEDs (Korry buttons), send the single character below.
   Terminator: ";" (Semicolon)
 ===============================================================================
 
-[ FCU ROTARY KNOBS ]
-+-----------+-------+-------+-------+-------+---------------------------------+
-| FUNCTION  | CW    | CCW   | PUSH  | PULL  | NOTES                           |
-|           | (Right)|(Left)|       |       |                                 |
-+-----------+-------+-------+-------+-------+---------------------------------+
-| SPEED     | 13    | 14    | 11    | 12    |                                 |
-| HEADING   | 3     | 4     | 1     | 2     |                                 |
-| ALTITUDE  | 17    | 18    | 15    | 16    |                                 |
-| VERT SPD  | 21    | 22    | 19    | 20    |                                 |
-| BARO      | (Val) | (Val) | 70    | 69    | CW/CCW sends value (e.g., 1013) |
-|           |       |       | (Std) | (QNH) | Push=Std, Pull=QNH Mode         |
-+-----------+-------+-------+-------+-------+---------------------------------+
+[ STANDARD ROTARY KNOBS (RELATIVE) ]
+These knobs send a specific code for Clockwise (CW) or Counter-CW (CCW).
++-----------+-------+-------+-------+-------+
+| FUNCTION  | CW    | CCW   | PUSH  | PULL  |
+|           | (Right)|(Left)|       |       |
++-----------+-------+-------+-------+-------+
+| SPEED     | 13    | 14    | 11    | 12    |
+| HEADING   | 3     | 4     | 1     | 2     |
+| ALTITUDE  | 17    | 18    | 15    | 16    |
+| VERT SPD  | 21    | 22    | 19    | 20    |
++-----------+-------+-------+-------+-------+
+
+[ BAROMETER KNOB (ABSOLUTE) ]
+Unique behavior: Sends absolute value instead of direction.
++-----------+-----------------+-----------------------------------------------+
+| ACTION    | CODE RECEIVED   | NOTES                                         |
++-----------+-----------------+-----------------------------------------------+
+| ROTATION  | 101,[Value];    | e.g., "101,1013;" or "101,2992;"              |
+| PUSH      | 70;             | Sets STD (Standard) Mode                      |
+| PULL      | 69;             | Sets QNH (Manual) Mode                        |
+| UNIT CHG  | 103;            | Switched to inHg mode                         |
+| UNIT CHG  | 104;            | Switched to hPa mode                          |
++-----------+-----------------+-----------------------------------------------+
 
 [ EFIS SELECTORS ]
 +-------------+------+    +-------------+------+
@@ -152,9 +165,9 @@ To control LEDs (Korry buttons), send the single character below.
 +---------------------+-------+----------------------------------+
 | Alt Step 100        | 59    | Altitude increment set to 100    |
 | Alt Step 1000       | 60    | Altitude increment set to 1000   |
-| Baro Unit inHg      | 103   | Baro mode changed to inHg        |
-| Baro Unit hPa       | 104   | Baro mode changed to hPa         |
 +---------------------+-------+----------------------------------+
+
+
 ## 🐍 Python Emulator
 
 The included script `minifcu_emulator.py` acts as a **Virtual MiniFCU**. It connects to the official Windows Software (via a virtual COM port pair) and tricks it into believing real hardware is attached.
