@@ -32,36 +32,442 @@ Once connected, the PC polls the device approximately every 500ms.
 1.  **PC sends:** `6,`
 2.  **Device responds:** `99;95;...` (Current state of buttons/knobs).
 
-### 📝 Data Format
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>MiniFCU & EFIS Protocol Cheat Sheet</title>
+<style>
+    body { font-family: sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }
+    h1 { border-bottom: 2px solid #333; padding-bottom: 10px; }
+    h2 { margin-top: 30px; color: #0056b3; border-bottom: 1px solid #ddd; }
+    h3 { margin-top: 20px; color: #444; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 0.9em; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background-color: #f2f2f2; font-weight: bold; }
+    tr:nth-child(even) { background-color: #f9f9f9; }
+    code { background-color: #f4f4f4; padding: 2px 4px; border-radius: 4px; font-family: monospace; color: #d63384; }
+    .note { font-size: 0.85em; color: #666; font-style: italic; }
+</style>
+</head>
+<body>
 
-**PC to Device (Display Updates):**
-* Terminator: `,` (Comma)
-* Format: `[Letter][Value],`
+<h1>📑 MiniFCU & EFIS Protocol Cheat Sheet</h1>
 
-| Command | Function | Example |
-| :--- | :--- | :--- |
-| `A` | **A**ltitude | `A15000,` (Set Alt to 15000) |
-| `S` | **S**peed | `S250,` (Set Spd to 250) |
-| `H` | **H**eading | `H120,` (Set Hdg to 120) |
-| `V` | **V**ertical Speed | `V1800,` (Set V/S to +1800) |
-| `B` | **B**arometer (QNH) | `B1013,` |
+<p>
+    <strong>Configuración de Conexión:</strong><br>
+    Baud Rate: <code>9600</code><br>
+    Terminador PC &rarr; HW: <code>,</code> (Coma)<br>
+    Terminador HW &rarr; PC: <code>;</code> (Punto y coma)
+</p>
 
-**Device to PC (Inputs):**
-* Terminator: `;` (Semicolon)
-* **Knobs:** `[ID],[Value];` (e.g., `14,101;`)
-* **Buttons:** `[ID];` (e.g., `51;` for AP1)
+<h2>1. Salidas (PC &rarr; MiniFCU)</h2>
+<p>Comandos enviados por el simulador para actualizar pantallas y luces.</p>
 
-| Input ID | Function | Notes |
-| :--- | :--- | :--- |
-| `14` | Speed Knob | Value increments/decrements |
-| `13` | Heading Knob | Value increments/decrements |
-| `17` | Altitude Knob | Value increments/decrements |
-| `22` | V/S Knob | Value increments/decrements |
-| `51` | AP1 Button | Toggle |
-| `50` | A/THR Button | Toggle |
-| `54` | LOC Button | Toggle |
+<h3>📟 Pantallas (7-Segmentos)</h3>
+<table>
+    <thead>
+        <tr>
+            <th>Ventana</th>
+            <th>Función</th>
+            <th>Sintaxis</th>
+            <th>Ejemplo</th>
+            <th>Notas</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td rowspan="3"><strong>SPEED</strong></td>
+            <td>Escribir Valor</td>
+            <td><code>S</code> + Valor</td>
+            <td><code>S250</code>, <code>S0.78</code></td>
+            <td>Nudos o Mach</td>
+        </tr>
+        <tr>
+            <td>Guiones (Dashes)</td>
+            <td><code>d</code></td>
+            <td><code>d</code></td>
+            <td>Muestra "---"</td>
+        </tr>
+        <tr>
+            <td>Punto (Managed)</td>
+            <td><code>z</code> (ON) / <code>x</code> (OFF)</td>
+            <td><code>z</code></td>
+            <td>Indicador lateral</td>
+        </tr>
+        <tr>
+            <td rowspan="3"><strong>HEADING</strong></td>
+            <td>Escribir Valor</td>
+            <td><code>H</code> + Valor</td>
+            <td><code>H180</code></td>
+            <td>0-359 Grados</td>
+        </tr>
+        <tr>
+            <td>Guiones (Dashes)</td>
+            <td><code>h</code></td>
+            <td><code>h</code></td>
+            <td>Muestra "---"</td>
+        </tr>
+        <tr>
+            <td>Punto (Managed)</td>
+            <td><code>m</code> (ON) / <code>s</code> (OFF)</td>
+            <td><code>m</code></td>
+            <td>Indicador lateral</td>
+        </tr>
+        <tr>
+            <td><strong>ALTITUDE</strong></td>
+            <td>Escribir Valor</td>
+            <td><code>A</code> + Valor</td>
+            <td><code>A32000</code></td>
+            <td>Pies</td>
+        </tr>
+        <tr>
+            <td><strong>VERT SPD</strong></td>
+            <td>Escribir Valor</td>
+            <td><code>V</code> + Valor</td>
+            <td><code>V-1500</code>, <code>V+0500</code></td>
+            <td>Pies por minuto</td>
+        </tr>
+        <tr>
+            <td><strong>FPA</strong></td>
+            <td>Flight Path Angle</td>
+            <td><code>F</code> + Valor</td>
+            <td><code>F-3.0</code></td>
+            <td>Ángulo de vuelo</td>
+        </tr>
+        <tr>
+            <td rowspan="2"><strong>BARO (QNH)</strong></td>
+            <td>HectoPascales</td>
+            <td><code>#</code> + Valor</td>
+            <td><code>#1013</code></td>
+            <td>Formato hPa</td>
+        </tr>
+        <tr>
+            <td>Pulgadas Hg</td>
+            <td><code>_</code> + Valor</td>
+            <td><code>_2992</code></td>
+            <td>Formato inHg</td>
+        </tr>
+    </tbody>
+</table>
 
----
+<h3>💡 Indicadores LED (Botones Korry)</h3>
+<table>
+    <thead>
+        <tr>
+            <th>Botón</th>
+            <th>Encender (ON)</th>
+            <th>Apagar (OFF)</th>
+            <th>Panel</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>AP1</strong></td>
+            <td><code>P</code></td>
+            <td><code>p</code></td>
+            <td>FCU</td>
+        </tr>
+        <tr>
+            <td><strong>AP2</strong></td>
+            <td><code>U</code></td>
+            <td><code>u</code></td>
+            <td>FCU</td>
+        </tr>
+        <tr>
+            <td><strong>A/THR</strong></td>
+            <td><code>T</code></td>
+            <td><code>t</code></td>
+            <td>FCU</td>
+        </tr>
+        <tr>
+            <td><strong>EXPED</strong></td>
+            <td><code>E</code></td>
+            <td><code>e</code></td>
+            <td>FCU</td>
+        </tr>
+        <tr>
+            <td><strong>APPR</strong></td>
+            <td><code>R</code></td>
+            <td><code>r</code></td>
+            <td>FCU</td>
+        </tr>
+        <tr>
+            <td><strong>LOC</strong></td>
+            <td><em>(Sin código)</em></td>
+            <td><em>(Sin código)</em></td>
+            <td>FCU</td>
+        </tr>
+        <tr>
+            <td><strong>FD</strong></td>
+            <td><code>51</code></td>
+            <td><code>50</code></td>
+            <td>EFIS</td>
+        </tr>
+        <tr>
+            <td><strong>LS</strong></td>
+            <td><code>41</code></td>
+            <td><code>40</code></td>
+            <td>EFIS</td>
+        </tr>
+        <tr>
+            <td><strong>CSTR</strong></td>
+            <td><code>31</code></td>
+            <td><code>30</code></td>
+            <td>EFIS</td>
+        </tr>
+        <tr>
+            <td><strong>WPT</strong></td>
+            <td><code>21</code></td>
+            <td><code>20</code></td>
+            <td>EFIS</td>
+        </tr>
+        <tr>
+            <td><strong>VOR.D</strong></td>
+            <td><code>11</code></td>
+            <td><code>10</code></td>
+            <td>EFIS</td>
+        </tr>
+        <tr>
+            <td><strong>NDB</strong></td>
+            <td><code>1</code></td>
+            <td><code>0</code></td>
+            <td>EFIS</td>
+        </tr>
+        <tr>
+            <td><strong>ARPT</strong></td>
+            <td><code>!1</code></td>
+            <td><code>!0</code></td>
+            <td>EFIS</td>
+        </tr>
+    </tbody>
+</table>
+
+<h2>2. Entradas (MiniFCU &rarr; PC)</h2>
+<p>Códigos recibidos al interactuar con el hardware. Todos terminan en <code>;</code>.</p>
+
+<h3>🎛️ Perillas Rotativas (FCU)</h3>
+<table>
+    <thead>
+        <tr>
+            <th>Perilla</th>
+            <th>Giro Izq (CCW)</th>
+            <th>Giro Der (CW)</th>
+            <th>Pulsar (Push)</th>
+            <th>Jalar (Pull)</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>SPEED / MACH</strong></td>
+            <td><code>14</code></td>
+            <td><code>13</code></td>
+            <td><code>11</code></td>
+            <td><code>12</code></td>
+        </tr>
+        <tr>
+            <td><strong>HEADING / TRK</strong></td>
+            <td><code>4</code></td>
+            <td><code>3</code></td>
+            <td><code>1</code></td>
+            <td><code>2</code></td>
+        </tr>
+        <tr>
+            <td><strong>ALTITUDE</strong></td>
+            <td><code>18</code></td>
+            <td><code>17</code></td>
+            <td><code>15</code></td>
+            <td><code>16</code></td>
+        </tr>
+        <tr>
+            <td><strong>VERT SPD / FPA</strong></td>
+            <td><code>22</code></td>
+            <td><code>21</code></td>
+            <td><code>19</code></td>
+            <td><code>20</code></td>
+        </tr>
+        <tr>
+            <td><strong>BARO (QNH)</strong></td>
+            <td><em>(Envía Valor)</em></td>
+            <td><em>(Envía Valor)</em></td>
+            <td><code>70</code> (STD)</td>
+            <td><code>69</code> (QNH)</td>
+        </tr>
+    </tbody>
+</table>
+
+<h3>🕹️ Selectores EFIS (Modo y Rango)</h3>
+<table>
+    <thead>
+        <tr>
+            <th>Posición</th>
+            <th>Modo (ND)</th>
+            <th>Rango (ND)</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>1 / LS / 10</strong></td>
+            <td><code>71</code></td>
+            <td><code>80</code></td>
+        </tr>
+        <tr>
+            <td><strong>2 / VOR / 20</strong></td>
+            <td><code>72</code></td>
+            <td><code>81</code></td>
+        </tr>
+        <tr>
+            <td><strong>3 / NAV / 40</strong></td>
+            <td><code>73</code></td>
+            <td><code>82</code></td>
+        </tr>
+        <tr>
+            <td><strong>4 / ARC / 80</strong></td>
+            <td><code>74</code></td>
+            <td><code>83</code></td>
+        </tr>
+        <tr>
+            <td><strong>5 / PLAN / 160</strong></td>
+            <td><code>75</code></td>
+            <td><code>84</code></td>
+        </tr>
+        <tr>
+            <td><strong>6 / 320</strong></td>
+            <td><code>76</code></td>
+            <td><code>85</code></td>
+        </tr>
+    </tbody>
+</table>
+
+<h3>🔘 Botones e Interruptores (Push Buttons)</h3>
+<table>
+    <thead>
+        <tr>
+            <th>Botón (FCU)</th>
+            <th>Código</th>
+            <th>Botón (EFIS)</th>
+            <th>Código</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>AP1</strong></td>
+            <td><code>50</code></td>
+            <td><strong>CSTR</strong></td>
+            <td><code>64</code></td>
+        </tr>
+        <tr>
+            <td><strong>AP2</strong></td>
+            <td><code>51</code></td>
+            <td><strong>WPT</strong></td>
+            <td><code>65</code></td>
+        </tr>
+        <tr>
+            <td><strong>A/THR</strong></td>
+            <td><code>52</code></td>
+            <td><strong>VOR.D</strong></td>
+            <td><code>66</code></td>
+        </tr>
+        <tr>
+            <td><strong>LOC</strong></td>
+            <td><code>53</code></td>
+            <td><strong>NDB</strong></td>
+            <td><code>67</code></td>
+        </tr>
+        <tr>
+            <td><strong>EXPED</strong></td>
+            <td><code>54</code></td>
+            <td><strong>ARPT</strong></td>
+            <td><code>68</code></td>
+        </tr>
+        <tr>
+            <td><strong>APPR</strong></td>
+            <td><code>55</code></td>
+            <td><strong>FD</strong></td>
+            <td><code>62</code></td>
+        </tr>
+        <tr>
+            <td><strong>SPD MACH</strong></td>
+            <td><code>56</code></td>
+            <td><strong>LS</strong></td>
+            <td><code>63</code></td>
+        </tr>
+        <tr>
+            <td><strong>HDG TRK</strong></td>
+            <td><code>57</code></td>
+            <td><strong>CHRONO</strong></td>
+            <td><code>61</code></td>
+        </tr>
+        <tr>
+            <td><strong>METRIC ALT</strong></td>
+            <td><code>58</code></td>
+            <td><strong>Mtr Alt</strong></td>
+            <td><code>58</code></td>
+        </tr>
+    </tbody>
+</table>
+
+<h3>⚙️ Interruptores de Palanca (EFIS)</h3>
+<table>
+    <thead>
+        <tr>
+            <th>Interruptor</th>
+            <th>Posición OFF</th>
+            <th>Posición ADF</th>
+            <th>Posición VOR</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>Pointer 1</strong></td>
+            <td><code>77</code></td>
+            <td><code>78</code></td>
+            <td><code>79</code></td>
+        </tr>
+        <tr>
+            <td><strong>Pointer 2</strong></td>
+            <td><code>86</code></td>
+            <td><code>87</code></td>
+            <td><code>88</code></td>
+        </tr>
+    </tbody>
+</table>
+
+<h3>⚙️ Configuración del Sistema</h3>
+<table>
+    <thead>
+        <tr>
+            <th>Acción</th>
+            <th>Código</th>
+            <th>Descripción</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>Alt Step 100</strong></td>
+            <td><code>59</code></td>
+            <td>Cambiar incremento de altitud a 100</td>
+        </tr>
+        <tr>
+            <td><strong>Alt Step 1000</strong></td>
+            <td><code>60</code></td>
+            <td>Cambiar incremento de altitud a 1000</td>
+        </tr>
+        <tr>
+            <td><strong>Baro inHg</strong></td>
+            <td><code>103</code></td>
+            <td>Modo Pulgadas de Mercurio</td>
+        </tr>
+        <tr>
+            <td><strong>Baro hPa</strong></td>
+            <td><code>104</code></td>
+            <td>Modo HectoPascales</td>
+        </tr>
+    </tbody>
+</table>
+
+</body>
+</html>
 
 ## 🐍 Python Emulator
 
@@ -84,130 +490,7 @@ The included script `minifcu_emulator.py` acts as a **Virtual MiniFCU**. It conn
     ```
     * The script will attach to **COM17**.
 
-# 📑 MiniFCU & EFIS Protocol Cheat Sheet
 
-This document summarizes the serial commands discovered via reverse engineering. It covers both the FCU (Flight Control Unit) and EFIS (Electronic Flight Instrument System) panels.
-
-**Protocol Basics:**
-* **Baud Rate:** 9600
-* **PC -> Device:** Commands end with `,` (comma).
-* **Device -> PC:** Commands end with `;` (semicolon).
-
----
-
-## 🖥️ 1. Outputs (PC -> Device)
-Commands sent to the device to update displays and LEDs.
-
-### 📟 7-Segment Displays
-
-| Window | Function | Command Syntax | Example | Note |
-| :--- | :--- | :--- | :--- | :--- |
-| **SPEED** | Write Value | `S` + `[Value]` | `S250` | Range: 0-999 |
-| | Dashes | `d` | `d` | Displays `---` |
-| | Dot (Managed) | `z` (On) / `x` (Off) | `z` | |
-| **HEADING** | Write Value | `H` + `[Value]` | `H180` | Range: 0-359 |
-| | Dashes | `h` | `h` | Displays `---` |
-| | Dot (Managed) | `m` (On) / `s` (Off) | `m` | |
-| **ALTITUDE** | Write Value | `A` + `[Value]` | `A32000` | |
-| | Dot (Managed) | *(Logic internal)* | | Managed dot usually handled by logic |
-| **VERT SPD** | Write Value | `V` + `[Value]` | `V1500` | Can be negative (e.g., `V-1000`) |
-| **FPA** | Write FPA | `F` + `[Value]` | `F-3.0` | Flight Path Angle |
-| **QNH** | HectoPascals | `#` + `[Value]` | `#1013` | |
-| | Inches Hg | `_` + `[Value]` | `_2992` | |
-
-### 💡 LED Annunciators (Korry Buttons)
-
-To turn an LED **ON** or **OFF**, send the corresponding character/code.
-
-| Button | LED ON Command | LED OFF Command |
-| :--- | :---: | :---: |
-| **AP1** | `P` | `p` |
-| **AP2** | `U` | `u` |
-| **A/THR** | `T` | `t` |
-| **EXPED** | `E` | `e` |
-| **APPR** | `R` | `r` |
-| **LOC** | *(Not Listed)* | *(Not Listed)* |
-| **FD** (EFIS) | `51` | `50` |
-| **LS** (EFIS) | `41` | `40` |
-| **CSTR** | `31` | `30` |
-| **WPT** | `21` | `20` |
-| **VOR.D** | `11` | `10` |
-| **NDB** | `1` | `0` |
-| **ARPT** | `!1` | `!0` |
-
----
-
-## 🎛️ 2. Inputs (Device -> PC)
-Codes received from the hardware when interactions occur. All codes end with `;`.
-
-### 🔄 FCU Rotary Knobs
-
-| Knob Function | Clockwise (CW) | Counter-CW (CCW) | Push | Pull |
-| :--- | :---: | :---: | :---: | :---: |
-| **SPD / MACH** | `13` | `14` | `11` | `12` |
-| **HDG / TRK** | `3` | `4` | `1` | `2` |
-| **ALTITUDE** | `17` | `18` | `15` | `16` |
-| **VERT SPD** | `21` | `22` | `19` | `20` |
-| **BARO (QNH)** | *(Value)* | *(Value)* | `70` (STD) | `69` |
-
-### 🔘 FCU Push Buttons
-
-| Button Name | Code Received |
-| :--- | :---: |
-| **AP1** | `50` |
-| **AP2** | `51` |
-| **A/THR** | `52` |
-| **LOC** | `53` |
-| **EXPED** | `54` |
-| **APPR** | `55` |
-| **SPD/MACH Toggle** | `56` |
-| **HDG/TRK Toggle** | `57` |
-| **METRIC ALT** | `58` |
-
-### 🕹️ EFIS Controls
-
-**ND Mode Selector (Knob)**
-| Position | Code |
-| :--- | :---: |
-| **LS** | `71` |
-| **VOR** | `72` |
-| **NAV** | `73` |
-| **ARC** | `74` |
-| **PLAN** | `75` |
-| **BLANK** | `76` |
-
-**ND Range Selector (Knob)**
-| Position | Code |
-| :--- | :---: |
-| **10** | `80` |
-| **20** | `81` |
-| **40** | `82` |
-| **80** | `83` |
-| **160** | `84` |
-| **320** | `85` |
-
-**EFIS Switches & Buttons**
-| Control | State/Code |
-| :--- | :--- |
-| **ADF/VOR 1** | `77` (Off), `78` (ADF), `79` (VOR) |
-| **ADF/VOR 2** | `86` (Off), `87` (ADF), `88` (VOR) |
-| **CSTR** | `64` |
-| **WPT** | `65` |
-| **VOR.D** | `66` |
-| **NDB** | `67` |
-| **ARPT** | `68` |
-| **FD** | `62` |
-| **LS** | `63` |
-| **CHRONO** | `61` |
-
-### ⚙️ System / Config Triggers
-
-| Trigger | Code | Description |
-| :--- | :---: | :--- |
-| **Altitude Step** | `59` | Set increment to 100 |
-| **Altitude Step** | `60` | Set increment to 1000 |
-| **Baro Mode** | `103` | Set unit to inHg |
-| **Baro Mode** | `104` | Set unit to hPa |
 
 ### Hardware Implementation (Orange Pi / ESP32)
 To implement this on an Orange Pi or custom microcontroller to replace the PC software:
