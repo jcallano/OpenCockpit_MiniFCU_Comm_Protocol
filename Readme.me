@@ -17,155 +17,159 @@ The protocol is **ASCII-based** over a standard USB Serial connection (CH340 chi
 * **Data Bits:** 8, **Parity:** None, **Stop Bits:** 1
 * **Signaling:** **DTR and RTS must be set to TRUE** to wake up the microcontroller.
 
-### 🤝 The Handshake (Critical)
-The official Windows software will **not** connect unless the device responds correctly to the initialization sequence.
+## 2. Initialization Sequence (Handshake)
 
+To establish communication with the miniFCU, the software must open the COM port with `DTR=True` and `RTS=True`, and immediately send the following command sequence. Timing is critical.
 
+| Sequence | Direction | Data (ASCII) | Description | Delay After |
+| :--- | :--- | :--- | :--- | :--- |
+| **1** | PC &rarr; HW | `C,` | **Wake Up / Handshake**. | 1000 ms |
+| **2** | PC &rarr; HW | `9,C,c,` | **Command Mode Config**. | 20 ms |
+| **3** | PC &rarr; HW | `7,%0,i,y,w,o,N,` | **Low Level Enable**. Activates basic I/O flags. | 200 ms |
+| **4** | PC &rarr; HW | `7,&,` | **Pre-Calibration**. | 20 ms |
+| **5** | PC &rarr; HW | *[Magic String]* | **Sensor Calibration**. Defines limits and enables inputs. | 50 ms |
+| **6** | PC &rarr; HW | *[EFIS Unlock]* | **EFIS & Visual Init**. Unlocks EFIS buttons and sets default lights. | N/A |
 
-1.  **PC sends:** `C,` (Check/Connect)
-2.  **Device MUST respond:** `901;956;959;` (Firmware/Device ID signature)
-    * *If this response is missing or incorrect, the software terminates the connection.*
+### 🧩 Calibration Strings
 
-### ❤️ Keep-Alive & Polling
-Once connected, the PC polls the device approximately every 500ms.
+**Step 5 (Magic String):**
+```text
+Q400,K100,-99,+10,n49000,b100,[6000,]-6000,Z9900,X-9900,I,Y,W,O,{1,(3248,}2200,=1100,$745,%0,
+```
 
-1.  **PC sends:** `6,`
-2.  **Device responds:** `99;95;...` (Current state of buttons/knobs).
+**Step 6 (EFIS Unlock):**
+```text
+w,v,p,u,t,l,e,r,B1000,#1013,{1,@1,50,40,30,20,10,00,!1,#1013,Y,
+```
 
+### 💓 Keep-Alive (Heartbeat)
+Once initialized, the software must send the heartbeat command every **1 to 3 seconds** to prevent the hardware watchdog from resetting the device.
+* **Command:** `6,` probable answer of hardware is '94'
+
+---
 
 # 📑 MiniFCU & EFIS Protocol Cheat Sheet
 
-All communication is ASCII-based.
-- Baud Rate: 9600
-- Data Bits: 8, Parity: None, Stop Bits: 1
-- DTR/RTS:   MUST BE TRUE (Required to power/wake the interface)
+---
 
-+-----------------------------------------------------------------------------+
-|                               CONNECTION LOGIC                              |
-+-----------+----------------------+------------------------------------------+
-| DIRECTION | PAYLOAD              | DESCRIPTION                              |
-+-----------+----------------------+------------------------------------------+
-| PC -> HW  | C,                   | Handshake Request (Sent on connect)      |
-| HW -> PC  | 901;956;959;         | Firmware ID (Mandatory response)         |
-| PC -> HW  | 6,                   | Keep-Alive Poll (Sent every ~500ms)      |
-| HW -> PC  | 99;95;...            | Keep-Alive Echo (Button status)          |
-+-----------+----------------------+------------------------------------------+
+### 📜 3. Command Summary (ASCII Table)
 
-===============================================================================
-  1. OUTPUTS (PC -> DEVICE)
-  Terminator: "," (Comma)
-===============================================================================
+This is the master reference table, indented with spaces for raw text viewing.
 
-[ DISPLAYS (7-SEGMENT) ]
-+----------+----------------+------------+------------------------------------+
-| WINDOW   | COMMAND SYNTAX | EXAMPLE    | NOTES                              |
-+----------+----------------+------------+------------------------------------+
-| SPEED    | S + [Value]    | S250       | Range: 0-999 (Knots/Mach)          |
-|          | d              | d          | Displays "---" (Dashes)            |
-|          | z / x          | z          | Dot: z=ON (Managed), x=OFF         |
-+----------+----------------+------------+------------------------------------+
-| HEADING  | H + [Value]    | H180       | Range: 0-359                       |
-|          | h              | h          | Displays "---" (Dashes)            |
-|          | m / s          | m          | Dot: m=ON (Managed), s=OFF         |
-+----------+----------------+------------+------------------------------------+
-| ALTITUDE | A + [Value]    | A35000     | Value in Feet                      |
-+----------+----------------+------------+------------------------------------+
-| VERT SPD | V + [Value]    | V-1500     | Vertical Speed (ft/min)            |
-|          |                | V1200      | Positive/Negative integer          |
-+----------+----------------+------------+------------------------------------+
-| FPA      | F + [Value]    | F-3.0      | Flight Path Angle (Decimal)        |
-+----------+----------------+------------+------------------------------------+
-| BARO     | # + [Value]    | #1013      | Format: HectoPascals (hPa)         |
-| (QNH)    | _ + [Value]    | _29.92     | Format: Inches Hg (inHg)           |
-+----------+----------------+------------+------------------------------------+
+```text
+================================================================================
+                    MINIFCU PROTOCOL MASTER REFERENCE TABLE
+================================================================================
+BAUD RATE: 9600  |  DATABITS: 8  |  PARITY: NONE  |  STOPBITS: 1
+--------------------------------------------------------------------------------
 
-[ LED ANNUNCIATORS ]
-To control LEDs (Korry buttons), send the single character below.
-+-----------+---------+---------+   +-----------+---------+---------+
-| BUTTON    | LED ON  | LED OFF |   | BUTTON    | LED ON  | LED OFF |
-+-----------+---------+---------+   +-----------+---------+---------+
-| AP1       | P       | p       |   | FD        | 51      | 50      |
-| AP2       | U       | u       |   | LS        | 41      | 40      |
-| A/THR     | T       | t       |   | CSTR      | 31      | 30      |
-| EXPED     | E       | e       |   | WPT       | 21      | 20      |
-| APPR      | R       | r       |   | VOR.D     | 11      | 10      |
-|           |         |         |   | NDB       | 1       | 0       |
-|           |         |         |   | ARPT      | !1      | !0      |
-+-----------+---------+---------+   +-----------+---------+---------+
+[ INPUTS: Hardware -> PC ]
+--------------------------------------------------------------------------------
+GROUP       FUNCTION                ACTION          CODE        NOTES
+--------------------------------------------------------------------------------
+SPEED       Encoder                 Rotate Inc      13
+            Encoder                 Rotate Dec      14
+            Push (Managed)          Push            11
+            Pull (Selected)         Pull            12
+            Selector                SPD/MACH        56          Toggle Logic
+
+HEADING     Encoder                 Rotate Inc      3
+            Encoder                 Rotate Dec      4
+            Push (Managed)          Push            1
+            Pull (Selected)         Pull            2
+            Selector                HDG/TRK         57          Toggle Logic
+
+ALTITUDE    Encoder                 Rotate Inc      17
+            Encoder                 Rotate Dec      18
+            Push (Managed)          Push            15
+            Pull (Selected)         Pull            16
+            Button                  METRIC ALT      58
+
+V/SPEED     Encoder                 Rotate Inc      21
+            Encoder                 Rotate Dec      22
+            Push (Level Off)        Push            19
+
+FCU BTNS    Auto Pilot 1            Push            50
+            Auto Pilot 2            Push            51
+            Auto Thrust             Push            52
+            Localizer (LOC)         Push            53
+            Expedite (EXPED)        Push            54          Status: 94
+            Approach (APPR)         Push            55
+
+EFIS BTNS   Flight Director (FD)    Push            62
+            Landing System (LS)     Push            63
+            Constraint (CSTR)       Push            64
+            Waypoint (WPT)          Push            65
+            VOR.D                   Push            66
+            NDB                     Push            67
+            Airport (ARPT)          Push            68
+            Chronometer             Push            61
+
+BARO (QNH)  Encoder                 Rotate          101,val;    Absolute val
+            Mode Standard           Pull            69
+            Mode QNH (Manual)       Push            70
+            Unit Selector           Switch inHg     103
+            Unit Selector           Switch hPa      104
+
+ND MODE     Selector (Knob)         LS              71
+                                    VOR             72
+                                    NAV             73
+                                    ARC             74
+                                    PLAN            75
+
+ND RANGE    Selector (Knob)         10              80
+                                    20              81
+                                    40              82
+                                    80              83
+                                    160             84
+                                    320             85
+
+POINTERS    Pointer 1 (Left)        OFF             77
+                                    ADF             78
+                                    VOR             79
+            Pointer 2 (Right)       OFF             86
+                                    ADF             87
+                                    VOR             88
 
 
-===============================================================================
-  2. INPUTS (DEVICE -> PC)
-  Terminator: ";" (Semicolon)
-===============================================================================
+[ OUTPUTS: PC -> Hardware ]
+--------------------------------------------------------------------------------
+GROUP       FUNCTION                ON CMD      OFF CMD     DISPLAY / NOTES
+--------------------------------------------------------------------------------
+DISPLAYS    Speed Value             -           -           Sxxx, (e.g., S250,)
+            Heading Value           -           -           Hxxx, (e.g., H180,)
+            Altitude Value          -           -           Axxxxx, (e.g., A32000,)
+            Vertical Speed          -           -           Vxxxx, (e.g., V-1500,)
+            QNH Value (hPa)         -           -           #xxxx, (e.g., #1013,)
+            QNH Value (inHg)        -           -           _xxxx, (e.g., _2992,)
 
-[ STANDARD ROTARY KNOBS (RELATIVE) ]
-These knobs send a specific code for Clockwise (CW) or Counter-CW (CCW).
-+-----------+-------+-------+-------+-------+
-| FUNCTION  | CW    | CCW   | PUSH  | PULL  |
-|           | (Right)|(Left)|       |       |
-+-----------+-------+-------+-------+-------+
-| SPEED     | 13    | 14    | 11    | 12    |
-| HEADING   | 3     | 4     | 1     | 2     |
-| ALTITUDE  | 17    | 18    | 15    | 16    |
-| VERT SPD  | 21    | 22    | 19    | 20    |
-+-----------+-------+-------+-------+-------+
+VISUALS     Speed Managed (Dot)     z,          x,          Orange Dot
+            Heading Managed (Dot)   m,          s,          Orange Dot
+            Altitude Managed (Dot)  a,          b,          Orange Dot
+            Speed Dashed (---)      d,          -           Replaces numbers
+            Heading Dashed (---)    h,          -           Replaces numbers
 
-[ BAROMETER KNOB (ABSOLUTE) ]
-Unique behavior: Sends absolute value instead of direction.
-+-----------+-----------------+-----------------------------------------------+
-| ACTION    | CODE RECEIVED   | NOTES                                         |
-+-----------+-----------------+-----------------------------------------------+
-| ROTATION  | 101,[Value];    | e.g., "101,1013;" or "101,2992;"              |
-| PUSH      | 70;             | Sets STD (Standard) Mode                      |
-| PULL      | 69;             | Sets QNH (Manual) Mode                        |
-| UNIT CHG  | 103;            | Switched to inHg mode                         |
-| UNIT CHG  | 104;            | Switched to hPa mode                          |
-+-----------+-----------------+-----------------------------------------------+
+MODES       SPD Mode (LED)          K,          k,          "SPD" Label
+            MACH Mode (LED)         M,          m,          "MACH" Label
+            HDG Mode (LED)          j,          -           "HDG V/S" Label
+            TRK Mode (LED)          J,          -           "TRK FPA" Label
+            QNH Standard (Text)     {0,@2,      {1,@1,      Displays "STD"
 
-[ EFIS SELECTORS ]
-+-------------+------+    +-------------+------+
-| ND MODE     | CODE |    | ND RANGE    | CODE |
-+-------------+------+    +-------------+------+
-| LS          | 71   |    | 10          | 80   |
-| VOR         | 72   |    | 20          | 81   |
-| NAV         | 73   |    | 40          | 82   |
-| ARC         | 74   |    | 80          | 83   |
-| PLAN        | 75   |    | 160         | 84   |
-| BLANK       | 76   |    | 320         | 85   |
-+-------------+------+    +-------------+------+
+FCU LEDS    AP 1                    P,          p,
+            AP 2                    U,          u,
+            A/THR                   T,          t,
+            LOC                     L,          l,
+            EXPED                   E,          e,
+            APPR                    R,          r,
 
-[ EFIS SWITCHES (POINTERS) ]
-+-----------+------+------+------+
-| SWITCH    | OFF  | ADF  | VOR  |
-+-----------+------+------+------+
-| POINTER 1 | 77   | 78   | 79   |
-| POINTER 2 | 86   | 87   | 88   |
-+-----------+------+------+------+
-
-[ PUSH BUTTONS ]
-+-----------+------+    +-----------+------+
-| FCU BTN   | CODE |    | EFIS BTN  | CODE |
-+-----------+------+    +-----------+------+
-| AP1       | 50   |    | CSTR      | 64   |
-| AP2       | 51   |    | WPT       | 65   |
-| A/THR     | 52   |    | VOR.D     | 66   |
-| LOC       | 53   |    | NDB       | 67   |
-| EXPED     | 54   |    | ARPT      | 68   |
-| APPR      | 55   |    | FD        | 62   |
-| SPD MACH  | 56   |    | LS        | 63   |
-| HDG TRK   | 57   |    | CHRONO    | 61   |
-| MTR ALT   | 58   |    | MTR ALT   | 58   |
-+-----------+------+    +-----------+------+
-
-[ SYSTEM CONFIGURATION ]
-+---------------------+-------+----------------------------------+
-| TRIGGER             | CODE  | DESCRIPTION                      |
-+---------------------+-------+----------------------------------+
-| Alt Step 100        | 59    | Altitude increment set to 100    |
-| Alt Step 1000       | 60    | Altitude increment set to 1000   |
-+---------------------+-------+----------------------------------+
-
+EFIS LEDS   FD                      51,         50,         Green LED
+            LS                      41,         40,         Green LED
+            CSTR                    31,         30,         Green LED
+            WPT                     21,         20,         Green LED
+            VOR.D                   11,         10,         Green LED
+            NDB                     01,         00,         Green LED
+            ARPT                    !1,         !0,         Green LED
+--------------------------------------------------------------------------------
 
 ## 🐍 Python Emulator
 
