@@ -84,6 +84,131 @@ The included script `minifcu_emulator.py` acts as a **Virtual MiniFCU**. It conn
     ```
     * The script will attach to **COM17**.
 
+# 📑 MiniFCU & EFIS Protocol Cheat Sheet
+
+This document summarizes the serial commands discovered via reverse engineering. It covers both the FCU (Flight Control Unit) and EFIS (Electronic Flight Instrument System) panels.
+
+**Protocol Basics:**
+* **Baud Rate:** 9600
+* **PC -> Device:** Commands end with `,` (comma).
+* **Device -> PC:** Commands end with `;` (semicolon).
+
+---
+
+## 🖥️ 1. Outputs (PC -> Device)
+Commands sent to the device to update displays and LEDs.
+
+### 📟 7-Segment Displays
+
+| Window | Function | Command Syntax | Example | Note |
+| :--- | :--- | :--- | :--- | :--- |
+| **SPEED** | Write Value | `S` + `[Value]` | `S250` | Range: 0-999 |
+| | Dashes | `d` | `d` | Displays `---` |
+| | Dot (Managed) | `z` (On) / `x` (Off) | `z` | |
+| **HEADING** | Write Value | `H` + `[Value]` | `H180` | Range: 0-359 |
+| | Dashes | `h` | `h` | Displays `---` |
+| | Dot (Managed) | `m` (On) / `s` (Off) | `m` | |
+| **ALTITUDE** | Write Value | `A` + `[Value]` | `A32000` | |
+| | Dot (Managed) | *(Logic internal)* | | Managed dot usually handled by logic |
+| **VERT SPD** | Write Value | `V` + `[Value]` | `V1500` | Can be negative (e.g., `V-1000`) |
+| **FPA** | Write FPA | `F` + `[Value]` | `F-3.0` | Flight Path Angle |
+| **QNH** | HectoPascals | `#` + `[Value]` | `#1013` | |
+| | Inches Hg | `_` + `[Value]` | `_2992` | |
+
+### 💡 LED Annunciators (Korry Buttons)
+
+To turn an LED **ON** or **OFF**, send the corresponding character/code.
+
+| Button | LED ON Command | LED OFF Command |
+| :--- | :---: | :---: |
+| **AP1** | `P` | `p` |
+| **AP2** | `U` | `u` |
+| **A/THR** | `T` | `t` |
+| **EXPED** | `E` | `e` |
+| **APPR** | `R` | `r` |
+| **LOC** | *(Not Listed)* | *(Not Listed)* |
+| **FD** (EFIS) | `51` | `50` |
+| **LS** (EFIS) | `41` | `40` |
+| **CSTR** | `31` | `30` |
+| **WPT** | `21` | `20` |
+| **VOR.D** | `11` | `10` |
+| **NDB** | `1` | `0` |
+| **ARPT** | `!1` | `!0` |
+
+---
+
+## 🎛️ 2. Inputs (Device -> PC)
+Codes received from the hardware when interactions occur. All codes end with `;`.
+
+### 🔄 FCU Rotary Knobs
+
+| Knob Function | Clockwise (CW) | Counter-CW (CCW) | Push | Pull |
+| :--- | :---: | :---: | :---: | :---: |
+| **SPD / MACH** | `13` | `14` | `11` | `12` |
+| **HDG / TRK** | `3` | `4` | `1` | `2` |
+| **ALTITUDE** | `17` | `18` | `15` | `16` |
+| **VERT SPD** | `21` | `22` | `19` | `20` |
+| **BARO (QNH)** | *(Value)* | *(Value)* | `70` (STD) | `69` |
+
+### 🔘 FCU Push Buttons
+
+| Button Name | Code Received |
+| :--- | :---: |
+| **AP1** | `50` |
+| **AP2** | `51` |
+| **A/THR** | `52` |
+| **LOC** | `53` |
+| **EXPED** | `54` |
+| **APPR** | `55` |
+| **SPD/MACH Toggle** | `56` |
+| **HDG/TRK Toggle** | `57` |
+| **METRIC ALT** | `58` |
+
+### 🕹️ EFIS Controls
+
+**ND Mode Selector (Knob)**
+| Position | Code |
+| :--- | :---: |
+| **LS** | `71` |
+| **VOR** | `72` |
+| **NAV** | `73` |
+| **ARC** | `74` |
+| **PLAN** | `75` |
+| **BLANK** | `76` |
+
+**ND Range Selector (Knob)**
+| Position | Code |
+| :--- | :---: |
+| **10** | `80` |
+| **20** | `81` |
+| **40** | `82` |
+| **80** | `83` |
+| **160** | `84` |
+| **320** | `85` |
+
+**EFIS Switches & Buttons**
+| Control | State/Code |
+| :--- | :--- |
+| **ADF/VOR 1** | `77` (Off), `78` (ADF), `79` (VOR) |
+| **ADF/VOR 2** | `86` (Off), `87` (ADF), `88` (VOR) |
+| **CSTR** | `64` |
+| **WPT** | `65` |
+| **VOR.D** | `66` |
+| **NDB** | `67` |
+| **ARPT** | `68` |
+| **FD** | `62` |
+| **LS** | `63` |
+| **CHRONO** | `61` |
+
+### ⚙️ System / Config Triggers
+
+| Trigger | Code | Description |
+| :--- | :---: | :--- |
+| **Altitude Step** | `59` | Set increment to 100 |
+| **Altitude Step** | `60` | Set increment to 1000 |
+| **Baro Mode** | `103` | Set unit to inHg |
+| **Baro Mode** | `104` | Set unit to hPa |
+
 ### Hardware Implementation (Orange Pi / ESP32)
 To implement this on an Orange Pi or custom microcontroller to replace the PC software:
 1.  Initialize Serial at 9600 baud.
