@@ -32,414 +32,129 @@ Once connected, the PC polls the device approximately every 500ms.
 1.  **PC sends:** `6,`
 2.  **Device responds:** `99;95;...` (Current state of buttons/knobs).
 
-<h1>📑 MiniFCU & EFIS Protocol Cheat Sheet</h1>
+# 📑 MiniFCU & EFIS Protocol Cheat Sheet
 
-<p>
-  <strong>Configuración:</strong> Baud Rate <code>9600</code> | 
-  <strong>PC &rarr; HW:</strong> Termina en <code>,</code> | 
-  <strong>HW &rarr; PC:</strong> Termina en <code>;</code>
-</p>
+All communication is ASCII-based.
+- Baud Rate: 9600
+- Data Bits: 8, Parity: None, Stop Bits: 1
+- DTR/RTS:   MUST BE TRUE (Required to power/wake the interface)
 
-<hr>
++-----------------------------------------------------------------------------+
+|                               CONNECTION LOGIC                              |
++-----------+----------------------+------------------------------------------+
+| DIRECTION | PAYLOAD              | DESCRIPTION                              |
++-----------+----------------------+------------------------------------------+
+| PC -> HW  | C,                   | Handshake Request (Sent on connect)      |
+| HW -> PC  | 901;956;959;         | Firmware ID (Mandatory response)         |
+| PC -> HW  | 6,                   | Keep-Alive Poll (Sent every ~500ms)      |
+| HW -> PC  | 99;95;...            | Keep-Alive Echo (Button status)          |
++-----------+----------------------+------------------------------------------+
 
-<h2>1. Salidas (PC &rarr; MiniFCU)</h2>
+===============================================================================
+  1. OUTPUTS (PC -> DEVICE)
+  Terminator: "," (Comma)
+===============================================================================
 
-<h3>📟 Pantallas (7-Segmentos)</h3>
-<table>
-  <thead>
-    <tr>
-      <th>Ventana</th>
-      <th>Función</th>
-      <th>Sintaxis</th>
-      <th>Ejemplo</th>
-      <th>Notas</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td rowspan="3"><strong>SPEED</strong></td>
-      <td>Escribir Valor</td>
-      <td><code>S</code> + Valor</td>
-      <td><code>S250</code></td>
-      <td>Nudos o Mach</td>
-    </tr>
-    <tr>
-      <td>Guiones</td>
-      <td><code>d</code></td>
-      <td><code>d</code></td>
-      <td>Muestra "---"</td>
-    </tr>
-    <tr>
-      <td>Punto (Managed)</td>
-      <td><code>z</code> / <code>x</code></td>
-      <td><code>z</code></td>
-      <td>z=ON, x=OFF</td>
-    </tr>
-    <tr>
-      <td rowspan="3"><strong>HEADING</strong></td>
-      <td>Escribir Valor</td>
-      <td><code>H</code> + Valor</td>
-      <td><code>H180</code></td>
-      <td>0-359 Grados</td>
-    </tr>
-    <tr>
-      <td>Guiones</td>
-      <td><code>h</code></td>
-      <td><code>h</code></td>
-      <td>Muestra "---"</td>
-    </tr>
-    <tr>
-      <td>Punto (Managed)</td>
-      <td><code>m</code> / <code>s</code></td>
-      <td><code>m</code></td>
-      <td>m=ON, s=OFF</td>
-    </tr>
-    <tr>
-      <td><strong>ALTITUDE</strong></td>
-      <td>Escribir Valor</td>
-      <td><code>A</code> + Valor</td>
-      <td><code>A32000</code></td>
-      <td>Pies</td>
-    </tr>
-    <tr>
-      <td><strong>VERT SPD</strong></td>
-      <td>Escribir Valor</td>
-      <td><code>V</code> + Valor</td>
-      <td><code>V-1500</code></td>
-      <td>+/- Pies por min</td>
-    </tr>
-    <tr>
-      <td><strong>FPA</strong></td>
-      <td>Ángulo</td>
-      <td><code>F</code> + Valor</td>
-      <td><code>F-3.0</code></td>
-      <td>Flight Path Angle</td>
-    </tr>
-    <tr>
-      <td rowspan="2"><strong>QNH</strong></td>
-      <td>HectoPascales</td>
-      <td><code>#</code> + Valor</td>
-      <td><code>#1013</code></td>
-      <td>Formato hPa</td>
-    </tr>
-    <tr>
-      <td>Pulgadas Hg</td>
-      <td><code>_</code> + Valor</td>
-      <td><code>_2992</code></td>
-      <td>Formato inHg</td>
-    </tr>
-  </tbody>
-</table>
+[ DISPLAYS (7-SEGMENT) ]
++----------+----------------+------------+------------------------------------+
+| WINDOW   | COMMAND SYNTAX | EXAMPLE    | NOTES                              |
++----------+----------------+------------+------------------------------------+
+| SPEED    | S + [Value]    | S250       | Range: 0-999 (Knots/Mach)          |
+|          | d              | d          | Displays "---" (Dashes)            |
+|          | z / x          | z          | Dot: z=ON (Managed), x=OFF         |
++----------+----------------+------------+------------------------------------+
+| HEADING  | H + [Value]    | H180       | Range: 0-359                       |
+|          | h              | h          | Displays "---" (Dashes)            |
+|          | m / s          | m          | Dot: m=ON (Managed), s=OFF         |
++----------+----------------+------------+------------------------------------+
+| ALTITUDE | A + [Value]    | A35000     | Value in Feet                      |
++----------+----------------+------------+------------------------------------+
+| VERT SPD | V + [Value]    | V-1500     | Vertical Speed (ft/min)            |
+|          |                | V1200      | Positive/Negative integer          |
++----------+----------------+------------+------------------------------------+
+| FPA      | F + [Value]    | F-3.0      | Flight Path Angle (Decimal)        |
++----------+----------------+------------+------------------------------------+
+| BARO     | # + [Value]    | #1013      | Format: HectoPascals (hPa)         |
+| (QNH)    | _ + [Value]    | _29.92     | Format: Inches Hg (inHg)           |
++----------+----------------+------------+------------------------------------+
 
-<h3>💡 Indicadores LED (Botones)</h3>
-<table>
-  <thead>
-    <tr>
-      <th>Botón</th>
-      <th>ON</th>
-      <th>OFF</th>
-      <th>Panel</th>
-      <th>Botón</th>
-      <th>ON</th>
-      <th>OFF</th>
-      <th>Panel</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><strong>AP1</strong></td>
-      <td><code>P</code></td>
-      <td><code>p</code></td>
-      <td>FCU</td>
-      <td><strong>FD</strong></td>
-      <td><code>51</code></td>
-      <td><code>50</code></td>
-      <td>EFIS</td>
-    </tr>
-    <tr>
-      <td><strong>AP2</strong></td>
-      <td><code>U</code></td>
-      <td><code>u</code></td>
-      <td>FCU</td>
-      <td><strong>LS</strong></td>
-      <td><code>41</code></td>
-      <td><code>40</code></td>
-      <td>EFIS</td>
-    </tr>
-    <tr>
-      <td><strong>A/THR</strong></td>
-      <td><code>T</code></td>
-      <td><code>t</code></td>
-      <td>FCU</td>
-      <td><strong>CSTR</strong></td>
-      <td><code>31</code></td>
-      <td><code>30</code></td>
-      <td>EFIS</td>
-    </tr>
-    <tr>
-      <td><strong>EXPED</strong></td>
-      <td><code>E</code></td>
-      <td><code>e</code></td>
-      <td>FCU</td>
-      <td><strong>WPT</strong></td>
-      <td><code>21</code></td>
-      <td><code>20</code></td>
-      <td>EFIS</td>
-    </tr>
-    <tr>
-      <td><strong>APPR</strong></td>
-      <td><code>R</code></td>
-      <td><code>r</code></td>
-      <td>FCU</td>
-      <td><strong>VOR.D</strong></td>
-      <td><code>11</code></td>
-      <td><code>10</code></td>
-      <td>EFIS</td>
-    </tr>
-    <tr>
-      <td><strong>LOC</strong></td>
-      <td>-</td>
-      <td>-</td>
-      <td>FCU</td>
-      <td><strong>NDB</strong></td>
-      <td><code>1</code></td>
-      <td><code>0</code></td>
-      <td>EFIS</td>
-    </tr>
-    <tr>
-      <td></td>
-      <td></td>
-      <td></td>
-      <td></td>
-      <td><strong>ARPT</strong></td>
-      <td><code>!1</code></td>
-      <td><code>!0</code></td>
-      <td>EFIS</td>
-    </tr>
-  </tbody>
-</table>
+[ LED ANNUNCIATORS ]
+To control LEDs (Korry buttons), send the single character below.
++-----------+---------+---------+   +-----------+---------+---------+
+| BUTTON    | LED ON  | LED OFF |   | BUTTON    | LED ON  | LED OFF |
++-----------+---------+---------+   +-----------+---------+---------+
+| AP1       | P       | p       |   | FD        | 51      | 50      |
+| AP2       | U       | u       |   | LS        | 41      | 40      |
+| A/THR     | T       | t       |   | CSTR      | 31      | 30      |
+| EXPED     | E       | e       |   | WPT       | 21      | 20      |
+| APPR      | R       | r       |   | VOR.D     | 11      | 10      |
+|           |         |         |   | NDB       | 1       | 0       |
+|           |         |         |   | ARPT      | !1      | !0      |
++-----------+---------+---------+   +-----------+---------+---------+
 
-<hr>
 
-<h2>2. Entradas (MiniFCU &rarr; PC)</h2>
+===============================================================================
+  2. INPUTS (DEVICE -> PC)
+  Terminator: ";" (Semicolon)
+===============================================================================
 
-<h3>🎛️ Perillas Rotativas (FCU)</h3>
-<table>
-  <thead>
-    <tr>
-      <th>Perilla</th>
-      <th>Giro Izq (CCW)</th>
-      <th>Giro Der (CW)</th>
-      <th>Pulsar (Push)</th>
-      <th>Jalar (Pull)</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><strong>SPEED</strong></td>
-      <td><code>14</code></td>
-      <td><code>13</code></td>
-      <td><code>11</code></td>
-      <td><code>12</code></td>
-    </tr>
-    <tr>
-      <td><strong>HEADING</strong></td>
-      <td><code>4</code></td>
-      <td><code>3</code></td>
-      <td><code>1</code></td>
-      <td><code>2</code></td>
-    </tr>
-    <tr>
-      <td><strong>ALTITUDE</strong></td>
-      <td><code>18</code></td>
-      <td><code>17</code></td>
-      <td><code>15</code></td>
-      <td><code>16</code></td>
-    </tr>
-    <tr>
-      <td><strong>V/S</strong></td>
-      <td><code>22</code></td>
-      <td><code>21</code></td>
-      <td><code>19</code></td>
-      <td><code>20</code></td>
-    </tr>
-    <tr>
-      <td><strong>BARO</strong></td>
-      <td>(Envía Valor)</td>
-      <td>(Envía Valor)</td>
-      <td><code>70</code> (STD)</td>
-      <td><code>69</code> (QNH)</td>
-    </tr>
-  </tbody>
-</table>
+[ FCU ROTARY KNOBS ]
++-----------+-------+-------+-------+-------+---------------------------------+
+| FUNCTION  | CW    | CCW   | PUSH  | PULL  | NOTES                           |
+|           | (Right)|(Left)|       |       |                                 |
++-----------+-------+-------+-------+-------+---------------------------------+
+| SPEED     | 13    | 14    | 11    | 12    |                                 |
+| HEADING   | 3     | 4     | 1     | 2     |                                 |
+| ALTITUDE  | 17    | 18    | 15    | 16    |                                 |
+| VERT SPD  | 21    | 22    | 19    | 20    |                                 |
+| BARO      | (Val) | (Val) | 70    | 69    | CW/CCW sends value (e.g., 1013) |
+|           |       |       | (Std) | (QNH) | Push=Std, Pull=QNH Mode         |
++-----------+-------+-------+-------+-------+---------------------------------+
 
-<h3>🕹️ Selectores EFIS</h3>
-<table>
-  <thead>
-    <tr>
-      <th>Posición</th>
-      <th>ND MODE</th>
-      <th>ND RANGE</th>
-      <th>Palanca</th>
-      <th>OFF</th>
-      <th>ADF</th>
-      <th>VOR</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><strong>1</strong></td>
-      <td><code>71</code> (LS)</td>
-      <td><code>80</code> (10)</td>
-      <td><strong>Pointer 1</strong></td>
-      <td><code>77</code></td>
-      <td><code>78</code></td>
-      <td><code>79</code></td>
-    </tr>
-    <tr>
-      <td><strong>2</strong></td>
-      <td><code>72</code> (VOR)</td>
-      <td><code>81</code> (20)</td>
-      <td><strong>Pointer 2</strong></td>
-      <td><code>86</code></td>
-      <td><code>87</code></td>
-      <td><code>88</code></td>
-    </tr>
-    <tr>
-      <td><strong>3</strong></td>
-      <td><code>73</code> (NAV)</td>
-      <td><code>82</code> (40)</td>
-      <td></td>
-      <td></td>
-      <td></td>
-      <td></td>
-    </tr>
-    <tr>
-      <td><strong>4</strong></td>
-      <td><code>74</code> (ARC)</td>
-      <td><code>83</code> (80)</td>
-      <td></td>
-      <td></td>
-      <td></td>
-      <td></td>
-    </tr>
-    <tr>
-      <td><strong>5</strong></td>
-      <td><code>75</code> (PLAN)</td>
-      <td><code>84</code> (160)</td>
-      <td></td>
-      <td></td>
-      <td></td>
-      <td></td>
-    </tr>
-    <tr>
-      <td><strong>6</strong></td>
-      <td><code>76</code> (BLANK)</td>
-      <td><code>85</code> (320)</td>
-      <td></td>
-      <td></td>
-      <td></td>
-      <td></td>
-    </tr>
-  </tbody>
-</table>
+[ EFIS SELECTORS ]
++-------------+------+    +-------------+------+
+| ND MODE     | CODE |    | ND RANGE    | CODE |
++-------------+------+    +-------------+------+
+| LS          | 71   |    | 10          | 80   |
+| VOR         | 72   |    | 20          | 81   |
+| NAV         | 73   |    | 40          | 82   |
+| ARC         | 74   |    | 80          | 83   |
+| PLAN        | 75   |    | 160         | 84   |
+| BLANK       | 76   |    | 320         | 85   |
++-------------+------+    +-------------+------+
 
-<h3>🔘 Botones (Push Buttons)</h3>
-<table>
-  <thead>
-    <tr>
-      <th>Botón (FCU)</th>
-      <th>Código</th>
-      <th>Botón (EFIS)</th>
-      <th>Código</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><strong>AP1</strong></td>
-      <td><code>50</code></td>
-      <td><strong>CSTR</strong></td>
-      <td><code>64</code></td>
-    </tr>
-    <tr>
-      <td><strong>AP2</strong></td>
-      <td><code>51</code></td>
-      <td><strong>WPT</strong></td>
-      <td><code>65</code></td>
-    </tr>
-    <tr>
-      <td><strong>A/THR</strong></td>
-      <td><code>52</code></td>
-      <td><strong>VOR.D</strong></td>
-      <td><code>66</code></td>
-    </tr>
-    <tr>
-      <td><strong>LOC</strong></td>
-      <td><code>53</code></td>
-      <td><strong>NDB</strong></td>
-      <td><code>67</code></td>
-    </tr>
-    <tr>
-      <td><strong>EXPED</strong></td>
-      <td><code>54</code></td>
-      <td><strong>ARPT</strong></td>
-      <td><code>68</code></td>
-    </tr>
-    <tr>
-      <td><strong>APPR</strong></td>
-      <td><code>55</code></td>
-      <td><strong>FD</strong></td>
-      <td><code>62</code></td>
-    </tr>
-    <tr>
-      <td><strong>SPD MACH</strong></td>
-      <td><code>56</code></td>
-      <td><strong>LS</strong></td>
-      <td><code>63</code></td>
-    </tr>
-    <tr>
-      <td><strong>HDG TRK</strong></td>
-      <td><code>57</code></td>
-      <td><strong>CHRONO</strong></td>
-      <td><code>61</code></td>
-    </tr>
-    <tr>
-      <td><strong>MTR ALT</strong></td>
-      <td><code>58</code></td>
-      <td><strong>MTR ALT</strong></td>
-      <td><code>58</code></td>
-    </tr>
-  </tbody>
-</table>
+[ EFIS SWITCHES (POINTERS) ]
++-----------+------+------+------+
+| SWITCH    | OFF  | ADF  | VOR  |
++-----------+------+------+------+
+| POINTER 1 | 77   | 78   | 79   |
+| POINTER 2 | 86   | 87   | 88   |
++-----------+------+------+------+
 
-<h3>⚙️ Configuración Sistema</h3>
-<table>
-  <tr>
-    <th>Acción</th>
-    <th>Código</th>
-    <th>Descripción</th>
-  </tr>
-  <tr>
-    <td><strong>Alt Step 100</strong></td>
-    <td><code>59</code></td>
-    <td>Incremento x100</td>
-  </tr>
-  <tr>
-    <td><strong>Alt Step 1000</strong></td>
-    <td><code>60</code></td>
-    <td>Incremento x1000</td>
-  </tr>
-  <tr>
-    <td><strong>Baro inHg</strong></td>
-    <td><code>103</code></td>
-    <td>Modo Pulgadas</td>
-  </tr>
-  <tr>
-    <td><strong>Baro hPa</strong></td>
-    <td><code>104</code></td>
-    <td>Modo Hectopascales</td>
-  </tr>
-</table>
+[ PUSH BUTTONS ]
++-----------+------+    +-----------+------+
+| FCU BTN   | CODE |    | EFIS BTN  | CODE |
++-----------+------+    +-----------+------+
+| AP1       | 50   |    | CSTR      | 64   |
+| AP2       | 51   |    | WPT       | 65   |
+| A/THR     | 52   |    | VOR.D     | 66   |
+| LOC       | 53   |    | NDB       | 67   |
+| EXPED     | 54   |    | ARPT      | 68   |
+| APPR      | 55   |    | FD        | 62   |
+| SPD MACH  | 56   |    | LS        | 63   |
+| HDG TRK   | 57   |    | CHRONO    | 61   |
+| MTR ALT   | 58   |    | MTR ALT   | 58   |
++-----------+------+    +-----------+------+
+
+[ SYSTEM CONFIGURATION ]
++---------------------+-------+----------------------------------+
+| TRIGGER             | CODE  | DESCRIPTION                      |
++---------------------+-------+----------------------------------+
+| Alt Step 100        | 59    | Altitude increment set to 100    |
+| Alt Step 1000       | 60    | Altitude increment set to 1000   |
+| Baro Unit inHg      | 103   | Baro mode changed to inHg        |
+| Baro Unit hPa       | 104   | Baro mode changed to hPa         |
++---------------------+-------+----------------------------------+
 ## 🐍 Python Emulator
 
 The included script `minifcu_emulator.py` acts as a **Virtual MiniFCU**. It connects to the official Windows Software (via a virtual COM port pair) and tricks it into believing real hardware is attached.
