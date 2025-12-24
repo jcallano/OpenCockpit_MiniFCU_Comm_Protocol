@@ -1,395 +1,205 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MiniFCU Interface Protocol Documentation</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-            line-height: 1.6;
-            color: #24292e;
-            max-width: 900px;
-            margin: 0 auto;
-            padding: 2rem;
-            background-color: #ffffff;
-        }
-        h1, h2, h3 {
-            border-bottom: 1px solid #eaecef;
-            padding-bottom: 0.3em;
-            margin-top: 24px;
-        }
-        h1 { font-size: 2em; }
-        h2 { font-size: 1.5em; }
-        h3 { font-size: 1.25em; }
-        
-        code {
-            font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
-            background-color: #f6f8fa;
-            padding: 0.2em 0.4em;
-            border-radius: 3px;
-            font-size: 85%;
-        }
-        
-        pre {
-            background-color: #f6f8fa;
-            border-radius: 3px;
-            padding: 16px;
-            overflow: auto;
-            font-size: 85%;
-            line-height: 1.45;
-        }
-        
-        pre code {
-            background-color: transparent;
-            padding: 0;
-        }
+# MiniFCU Interface Reverse Engineering & Emulator
+# MiniCockpit Data Link Software Ver 3.0.0 Hardware FirmWare 20251113
 
-        table {
-            border-collapse: collapse;
-            width: 100%;
-            margin-bottom: 16px;
-        }
-        
-        th, td {
-            padding: 6px 13px;
-            border: 1px solid #dfe2e5;
-        }
-        
-        tr:nth-child(2n) {
-            background-color: #f6f8fa;
-        }
-        
-        th {
-            font-weight: 600;
-            background-color: #f6f8fa;
-            text-align: left;
-        }
+This repository documents the serial protocol used by the **miniFCU** autopilot interface (A320 style) and provides a Python emulator that mimics the hardware behavior. 
 
-        .alert {
-            padding: 15px;
-            margin-bottom: 20px;
-            border: 1px solid transparent;
-            border-radius: 4px;
-            color: #856404;
-            background-color: #fff3cd;
-            border-color: #ffeeba;
-        }
-    </style>
-</head>
-<body>
+This project allows developers to:
+1. Understand how the proprietary Windows software communicates with the hardware.
+2. Build custom drivers for Linux (Raspberry Pi/Orange Pi).
+3. Interface the miniFCU with custom flight sim logic without the original bridge software.
 
-    <header>
-        <h1>MiniFCU Interface Protocol & Emulator</h1>
-        <p>
-            <strong>Hardware Firmware Version:</strong> 20251113<br>
-            <strong>Protocol Revision:</strong> 3.1 (Updated Dec 2025)
-        </p>
-        <p>This document details the serial protocol used by the <strong>miniFCU</strong> autopilot interface (A320 style), based on reverse-engineering of the communication between the hardware and the official Windows software.</p>
-    </header>
+## 🕵️ Reverse Engineering Findings
 
-    <section id="hardware">
-        <h2>1. Hardware Interface</h2>
-        <p>The miniFCU utilizes a <strong>CH340 USB-to-Serial</strong> bridge. To communicate with the device using an ESP32, Python, or Linux, ensure your serial connection matches these settings exactly:</p>
-        
-        <ul>
-            <li><strong>Baud Rate:</strong> 9600 bps</li>
-            <li><strong>Data Bits:</strong> 8</li>
-            <li><strong>Parity:</strong> None</li>
-            <li><strong>Stop Bits:</strong> 1</li>
-            <li><strong>Flow Control:</strong> None</li>
-        </ul>
+The protocol is **ASCII-based** over a standard USB Serial connection (CH340 chip).
 
-        <div class="alert">
-            <strong>CRITICAL:</strong> You MUST set <code>DTR=True</code> and <code>RTS=True</code> immediately upon opening the serial connection. This signal is required to wake up the microcontroller.
-        </div>
-    </section>
+### Connection Settings
+* **Baud Rate:** 9600 bps (Critical)
+* **Data Bits:** 8, **Parity:** None, **Stop Bits:** 1
+* **Signaling:** **DTR and RTS must be set to TRUE** to wake up the microcontroller.
 
-    <section id="initialization">
-        <h2>2. Initialization Sequence (Handshake)</h2>
-        <p>The device enters a locked state upon power-up. It will not respond to button presses or display data until the following handshake sequence is completed sequentially.</p>
+## 2. Initialization Sequence (Handshake)
 
-        <table>
-            <thead>
-                <tr>
-                    <th>Step</th>
-                    <th>Direction</th>
-                    <th>Data (ASCII)</th>
-                    <th>Description</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>1</td>
-                    <td>Host &rarr; HW</td>
-                    <td><code>C,</code></td>
-                    <td><strong>Connect Request</strong>. Clears the line.</td>
-                </tr>
-                <tr>
-                    <td></td>
-                    <td>HW &rarr; Host</td>
-                    <td><code>901;956;959;</code></td>
-                    <td><em>Response: Device Firmware/Module IDs.</em></td>
-                </tr>
-                <tr>
-                    <td>2</td>
-                    <td>Host &rarr; HW</td>
-                    <td><code>9,C,c,</code></td>
-                    <td><strong>Command Mode Config</strong>.</td>
-                </tr>
-                <tr>
-                    <td>3</td>
-                    <td>Host &rarr; HW</td>
-                    <td><code>7,%0,i,y,w,o,N,</code></td>
-                    <td><strong>Low Level Enable</strong>. Activates I/O flags.</td>
-                </tr>
-                <tr>
-                    <td>4</td>
-                    <td>Host &rarr; HW</td>
-                    <td><code>7,&,</code></td>
-                    <td><strong>Pre-Calibration</strong>.</td>
-                </tr>
-                <tr>
-                    <td>5</td>
-                    <td>Host &rarr; HW</td>
-                    <td><em>[Magic String]</em></td>
-                    <td><strong>Sensor Calibration</strong>. (See below).</td>
-                </tr>
-                <tr>
-                    <td>6</td>
-                    <td>Host &rarr; HW</td>
-                    <td><em>[EFIS String]</em></td>
-                    <td><strong>EFIS Initialization</strong>. (See below).</td>
-                </tr>
-            </tbody>
-        </table>
+To establish communication with the miniFCU, the software must open the COM port with `DTR=True` and `RTS=True`, and immediately send the following command sequence. Timing is critical.
 
-        <h3>Required Initialization Strings</h3>
-        <p>These strings are extracted from Firmware 20251113 and are required for correct operation.</p>
+| Sequence | Direction | Data (ASCII) | Description | Delay After |
+| :--- | :--- | :--- | :--- | :--- |
+| **1** | PC &rarr; HW | `C,` | **Wake Up / Handshake**. | 1000 ms |
+| **2** | PC &rarr; HW | `9,C,c,` | **Command Mode Config**. | 20 ms |
+| **3** | PC &rarr; HW | `7,%0,i,y,w,o,N,` | **Low Level Enable**. Activates basic I/O flags. | 200 ms |
+| **4** | PC &rarr; HW | `7,&,` | **Pre-Calibration**. | 20 ms |
+| **5** | PC &rarr; HW | *[Magic String]* | **Sensor Calibration**. Defines limits and enables inputs. | 50 ms |
+| **6** | PC &rarr; HW | *[EFIS Unlock]* | **EFIS & Visual Init**. Unlocks EFIS buttons and sets default lights. | N/A |
 
-        <h4>Step 5 (Magic String / Calibration)</h4>
-        <pre><code>Q400,K100,-99,+10,n49000,b100,[6000,]-6000,Z9900,X-9900,I,Y,W,O,{1,(3248,}2200,=1100,$745,%0,</code></pre>
+### 🧩 Calibration Strings
 
-        <h4>Step 6 (EFIS Unlock & Defaults)</h4>
-        <pre><code>w,v,x,s,q,i,d,w,v,p,u,t,l,e,r,B1000,#1013,{1,@1,51,40,30,20,10,00,!0,#1013,Y,</code></pre>
-    </section>
+**Step 5 (Magic String):**
+```text
+Q400,K100,-99,+10,n49000,b100,[6000,]-6000,Z9900,X-9900,I,Y,W,O,{1,(3248,}2200,=1100,$745,%0,
+```
 
-    <section id="heartbeat">
-        <h2>3. The "Heartbeat" (Keep-Alive)</h2>
-        <p>To keep the display active and poll for user inputs, the Host must send a query command every <strong>200ms - 1000ms</strong>.</p>
+**Step 6 (EFIS Unlock):**
+```text
+w,v,p,u,t,l,e,r,B1000,#1013,{1,@1,50,40,30,20,10,00,!1,#1013,Y,
+```
 
-        <ul>
-            <li><strong>Host Command:</strong> <code>6,</code></li>
-            <li><strong>Device Response:</strong> <code>99;94;952;962;972;982;</code></li>
-        </ul>
+### 💓 Keep-Alive (Heartbeat)
+Once initialized, the software must send the heartbeat command every **1 to 3 seconds** to prevent the hardware watchdog from resetting the device.
+* **Command:** `6,` probable answer of hardware is '94'
 
-        <h3>Response Breakdown</h3>
-        <p>The response contains status flags followed by the device's unique serial numbers.</p>
-        <ul>
-            <li><code>99;</code> / <code>94;</code> : <strong>Status Flags</strong> (Alive/Ready).</li>
-            <li><code>952;962;972;982;</code> : <strong>Serial Numbers</strong> (Unique to each unit/LCD module).</li>
-        </ul>
-        <p><em>Developer Note: When parsing the response, read until the newline or semicolon terminator. Do not validate against a fixed string like "94", as the trailing numbers will vary between devices.</em></p>
-    </section>
+---
 
-    <section id="inputs">
-        <h2>4. Input Codes (Hardware &rarr; Host)</h2>
-        <p>The device sends the following ASCII codes only when an interaction occurs.</p>
+# 📑 MiniFCU & EFIS Protocol Cheat Sheet
 
-        <table>
-            <thead>
-                <tr>
-                    <th>Group</th>
-                    <th>Function</th>
-                    <th>Action</th>
-                    <th>Code</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td><strong>SPEED</strong></td>
-                    <td>Encoder</td>
-                    <td>Rotate CW / CCW</td>
-                    <td><code>13</code> / <code>14</code></td>
-                </tr>
-                <tr>
-                    <td></td>
-                    <td>Push / Pull</td>
-                    <td>Managed / Selected</td>
-                    <td><code>11</code> / <code>12</code></td>
-                </tr>
-                <tr>
-                    <td></td>
-                    <td>Toggle</td>
-                    <td>SPD/MACH</td>
-                    <td><code>56</code></td>
-                </tr>
-                <tr>
-                    <td><strong>HEADING</strong></td>
-                    <td>Encoder</td>
-                    <td>Rotate CW / CCW</td>
-                    <td><code>3</code> / <code>4</code></td>
-                </tr>
-                <tr>
-                    <td></td>
-                    <td>Push / Pull</td>
-                    <td>Managed / Selected</td>
-                    <td><code>1</code> / <code>2</code></td>
-                </tr>
-                <tr>
-                    <td><strong>ALTITUDE</strong></td>
-                    <td>Encoder</td>
-                    <td>Rotate CW / CCW</td>
-                    <td><code>17</code> / <code>18</code></td>
-                </tr>
-                <tr>
-                    <td></td>
-                    <td>Push / Pull</td>
-                    <td>Managed / Selected</td>
-                    <td><code>15</code> / <code>16</code></td>
-                </tr>
-                <tr>
-                    <td><strong>V/SPEED</strong></td>
-                    <td>Encoder</td>
-                    <td>Rotate CW / CCW</td>
-                    <td><code>21</code> / <code>22</code></td>
-                </tr>
-                <tr>
-                    <td></td>
-                    <td>Push</td>
-                    <td>Level Off</td>
-                    <td><code>19</code></td>
-                </tr>
-                <tr>
-                    <td><strong>FCU KEYS</strong></td>
-                    <td>AP1 / AP2</td>
-                    <td>Push</td>
-                    <td><code>50</code> / <code>51</code></td>
-                </tr>
-                <tr>
-                    <td></td>
-                    <td>A/THR</td>
-                    <td>Push</td>
-                    <td><code>52</code></td>
-                </tr>
-                <tr>
-                    <td></td>
-                    <td>LOC / EXPED / APPR</td>
-                    <td>Push</td>
-                    <td><code>53</code> / <code>54</code> / <code>55</code></td>
-                </tr>
-            </tbody>
-        </table>
-    </section>
+---
 
-    <section id="outputs">
-        <h2>5. Output Codes (Host &rarr; Hardware)</h2>
-        <p>Send these ASCII strings to update the display. All commands must end with a comma <code>,</code>.</p>
+### 📜 3. Command Summary (ASCII Table)
 
-        <h3>Numerical Displays</h3>
-        <table>
-            <thead>
-                <tr>
-                    <th>Display</th>
-                    <th>Format</th>
-                    <th>Example</th>
-                    <th>Notes</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>Speed</td>
-                    <td><code>Sxxx,</code></td>
-                    <td><code>S250,</code></td>
-                    <td></td>
-                </tr>
-                <tr>
-                    <td>Heading</td>
-                    <td><code>Hxxx,</code></td>
-                    <td><code>H180,</code></td>
-                    <td></td>
-                </tr>
-                <tr>
-                    <td>Altitude</td>
-                    <td><code>Axxxxx,</code></td>
-                    <td><code>A32000,</code></td>
-                    <td></td>
-                </tr>
-                <tr>
-                    <td>Vertical Spd</td>
-                    <td><code>Vxxxx,</code></td>
-                    <td><code>V-1500,</code></td>
-                    <td></td>
-                </tr>
-                <tr>
-                    <td>QNH (hPa)</td>
-                    <td><code>#xxxx,</code></td>
-                    <td><code>#1013,</code></td>
-                    <td>Use <code>#</code> prefix</td>
-                </tr>
-                <tr>
-                    <td>QNH (inHg)</td>
-                    <td><code>_xxxx,</code></td>
-                    <td><code>_2992,</code></td>
-                    <td>Use <code>_</code> prefix</td>
-                </tr>
-            </tbody>
-        </table>
+This is the master reference table, indented with spaces for raw text viewing.
 
-        <h3>LEDs & Indicators</h3>
-        <table>
-            <thead>
-                <tr>
-                    <th>Function</th>
-                    <th>ON Command</th>
-                    <th>OFF Command</th>
-                    <th>Notes</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>Speed Managed (Dot)</td>
-                    <td><code>z,</code></td>
-                    <td><code>x,</code></td>
-                    <td>Orange Dot</td>
-                </tr>
-                <tr>
-                    <td>Hdg Managed (Dot)</td>
-                    <td><code>m,</code></td>
-                    <td><code>s,</code></td>
-                    <td>Orange Dot</td>
-                </tr>
-                <tr>
-                    <td>Alt Managed (Dot)</td>
-                    <td><code>a,</code></td>
-                    <td><code>b,</code></td>
-                    <td>Orange Dot</td>
-                </tr>
-                <tr>
-                    <td>AP 1 LED</td>
-                    <td><code>P,</code></td>
-                    <td><code>p,</code></td>
-                    <td>Button Light</td>
-                </tr>
-                <tr>
-                    <td>AP 2 LED</td>
-                    <td><code>U,</code></td>
-                    <td><code>u,</code></td>
-                    <td>Button Light</td>
-                </tr>
-                <tr>
-                    <td>A/THR LED</td>
-                    <td><code>T,</code></td>
-                    <td><code>t,</code></td>
-                    <td>Button Light</td>
-                </tr>
-            </tbody>
-        </table>
-    </section>
+```text
+================================================================================
+                    MINIFCU PROTOCOL MASTER REFERENCE TABLE
+================================================================================
+BAUD RATE: 9600  |  DATABITS: 8  |  PARITY: NONE  |  STOPBITS: 1
+--------------------------------------------------------------------------------
 
-    <footer>
-        <p><em>Generated based on analysis of device communication dump "dumpidle.txt".</em></p>
-    </footer>
+[ INPUTS: Hardware -> PC ]
+--------------------------------------------------------------------------------
+GROUP       FUNCTION                ACTION          CODE        NOTES
+--------------------------------------------------------------------------------
+SPEED       Encoder                 Rotate Inc      13
+            Encoder                 Rotate Dec      14
+            Push (Managed)          Push            11
+            Pull (Selected)         Pull            12
+            Selector                SPD/MACH        56          Toggle Logic
 
-</body>
-</html>
+HEADING     Encoder                 Rotate Inc      3
+            Encoder                 Rotate Dec      4
+            Push (Managed)          Push            1
+            Pull (Selected)         Pull            2
+            Selector                HDG/TRK         57          Toggle Logic
+
+ALTITUDE    Encoder                 Rotate Inc      17
+            Encoder                 Rotate Dec      18
+            Push (Managed)          Push            15
+            Pull (Selected)         Pull            16
+            Button                  METRIC ALT      58
+
+V/SPEED     Encoder                 Rotate Inc      21
+            Encoder                 Rotate Dec      22
+            Push (Level Off)        Push            19
+
+FCU BTNS    Auto Pilot 1            Push            50
+            Auto Pilot 2            Push            51
+            Auto Thrust             Push            52
+            Localizer (LOC)         Push            53
+            Expedite (EXPED)        Push            54          Status: 94
+            Approach (APPR)         Push            55
+
+EFIS BTNS   Flight Director (FD)    Push            62
+            Landing System (LS)     Push            63
+            Constraint (CSTR)       Push            64
+            Waypoint (WPT)          Push            65
+            VOR.D                   Push            66
+            NDB                     Push            67
+            Airport (ARPT)          Push            68
+            Chronometer             Push            61
+
+BARO (QNH)  Encoder                 Rotate          101,val;    Absolute val
+            Mode Standard           Pull            69
+            Mode QNH (Manual)       Push            70
+            Unit Selector           Switch inHg     103
+            Unit Selector           Switch hPa      104
+
+ND MODE     Selector (Knob)         LS              71
+                                    VOR             72
+                                    NAV             73
+                                    ARC             74
+                                    PLAN            75
+
+ND RANGE    Selector (Knob)         10              80
+                                    20              81
+                                    40              82
+                                    80              83
+                                    160             84
+                                    320             85
+
+POINTERS    Pointer 1 (Left)        OFF             77
+                                    ADF             78
+                                    VOR             79
+            Pointer 2 (Right)       OFF             86
+                                    ADF             87
+                                    VOR             88
+
+
+[ OUTPUTS: PC -> Hardware ]
+--------------------------------------------------------------------------------
+GROUP       FUNCTION                ON CMD      OFF CMD     DISPLAY / NOTES
+--------------------------------------------------------------------------------
+DISPLAYS    Speed Value             -           -           Sxxx, (e.g., S250,)
+            Heading Value           -           -           Hxxx, (e.g., H180,)
+            Altitude Value          -           -           Axxxxx, (e.g., A32000,)
+            Vertical Speed          -           -           Vxxxx, (e.g., V-1500,)
+            QNH Value (hPa)         -           -           #xxxx, (e.g., #1013,)
+            QNH Value (inHg)        -           -           _xxxx, (e.g., _2992,)
+
+VISUALS     Speed Managed (Dot)     z,          x,          Orange Dot
+            Heading Managed (Dot)   m,          s,          Orange Dot
+            Altitude Managed (Dot)  a,          b,          Orange Dot
+            Speed Dashed (---)      d,          -           Replaces numbers
+            Heading Dashed (---)    h,          -           Replaces numbers
+
+MODES       SPD Mode (LED)          K,          k,          "SPD" Label
+            MACH Mode (LED)         M,          m,          "MACH" Label
+            HDG Mode (LED)          j,          -           "HDG V/S" Label
+            TRK Mode (LED)          J,          -           "TRK FPA" Label
+            QNH Standard (Text)     {0,@2,      {1,@1,      Displays "STD"
+
+FCU LEDS    AP 1                    P,          p,
+            AP 2                    U,          u,
+            A/THR                   T,          t,
+            LOC                     L,          l,
+            EXPED                   E,          e,
+            APPR                    R,          r,
+
+EFIS LEDS   FD                      51,         50,         Green LED
+            LS                      41,         40,         Green LED
+            CSTR                    31,         30,         Green LED
+            WPT                     21,         20,         Green LED
+            VOR.D                   11,         10,         Green LED
+            NDB                     01,         00,         Green LED
+            ARPT                    !1,         !0,         Green LED
+--------------------------------------------------------------------------------
+
+## 🐍 Python Emulator
+
+The included script `minifcu_emulator.py` acts as a **Virtual MiniFCU**. It connects to the official Windows Software (via a virtual COM port pair) and tricks it into believing real hardware is attached.
+
+### Usage
+
+1.  **Install dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+2.  **Setup Virtual Serial Ports:**
+    * Use software like *com0com* or *Virtual Serial Port Driver*.
+    * Create a pair: **COM16** <-> **COM17**.
+3.  **Run the Official Software:**
+    * Configure it to connect to **COM16**.
+4.  **Run the Emulator:**
+    ```bash
+    python minifcu_emulator.py
+    ```
+    * The script will attach to **COM17**.
+
+
+
+### Hardware Implementation (Orange Pi / ESP32)
+To implement this on an Orange Pi or custom microcontroller to replace the PC software:
+1.  Initialize Serial at 9600 baud.
+2.  Send `C,` immediately upon connection.
+3.  Send `6,` every 500ms to keep the screen active.
+4.  Parse incoming knob data ending in `;`.
+
+## Credits
+Reverse engineered using Man-in-the-Middle serial sniffing techniques.
