@@ -1,3 +1,196 @@
--------------------------------------------------------
+# OpenCockpit MiniFCU Communication Protocol
+Reverse-Engineered Specification
+
+This document describes the communication protocol used by the OpenCockpit
+MiniFCU panel. The protocol has been reverse-engineered by analyzing USB serial
+traffic during idle operation and active user interaction (buttons, knobs,
+encoders).
+
+DISCLAIMER
+This protocol is not officially documented by the manufacturer.
+All information here is based on serial dumps and behavioral analysis.
+
+----------------------------------------------------------------
+
+DESIGN PHILOSOPHY
+
+The MiniFCU is a stateless I/O device.
+
+- The hardware does not store logical state
+- The hardware does not manage modes or toggles
+- All logic lives on the PC side
+- Displays and LEDs must be continuously refreshed
+
+----------------------------------------------------------------
+
+PHYSICAL & SERIAL LAYER
+
+Interface:
+- USB Serial (CH340 chipset)
+
+Serial configuration:
+- Baud rate: 9600
+- Data bits: 8
+- Parity: None
+- Stop bits: 1
+- Flow control: None
+
+CRITICAL REQUIREMENT:
+Both DTR and RTS must be asserted (HIGH), otherwise the MCU remains unpowered.
+
+----------------------------------------------------------------
+
+TRANSPORT & ENCODING
+
+- ASCII text protocol
+- No binary framing
+- No checksums
+- No length fields
+
+Delimiters:
+- PC to Hardware: comma (,)
+- Hardware to PC: semicolon (;)
+
+Multiple commands may be chained in a single packet.
+
+----------------------------------------------------------------
+
+DEVICE IDENTIFICATION
+
+Observed response:
+20251113;901;956;959;
+
+- 20251113: firmware build or version identifier (likely date-based)
+- Remaining values: internal status flags (semantics unknown)
+
+----------------------------------------------------------------
+
+MANDATORY INITIALIZATION SEQUENCE
+
+This sequence is required. Removing or reordering commands may leave the panel
+locked until power-cycled.
+
+Observed sequence:
+
+C,
+9,C,
+c,
+7,%0,i,y,w,o,N,
+7,&,
+Q400,K100,-99,+10,n49000,b100,[6000,]-6000,Z9900,X-9900,
+I,Y,W,O,{1,(3248,}2200,=1100,$745,%0,
+
+----------------------------------------------------------------
+
+RUNTIME COMMUNICATION MODEL
+
+Idle mode:
+- PC continuously polls the device
+- Hardware only responds
+
+Active mode:
+- Hardware sends asynchronous events
+- PC reacts by refreshing LEDs and displays
+- Hardware never updates state autonomously
+
+----------------------------------------------------------------
+
+HARDWARE TO PC EVENTS
+
+Push / Pull actions:
+SPD PUSH  : 11;
+SPD PULL  : 12;
+HDG PUSH  : 1;
+HDG PULL  : 2;
+ALT PUSH  : 15;
+ALT PULL  : 16;
+VS PUSH   : 19;
+
+EFIS / Autopilot buttons:
+AP1   : 50;
+AP2   : 51;
+ATHR  : 52;
+LOC   : 53;
+EXPED : 54;
+APPR  : 55;
+FD    : 62;
+LS    : 63;
+CSTR  : 64;
+WPT   : 65;
+VORD  : 66;
+NDB   : 67;
+ARPT  : 68;
+
+----------------------------------------------------------------
+
+PC TO HARDWARE OUTPUT COMMANDS
+
+Autopilot LEDs:
+AP1   ON P,   OFF p,
+AP2   ON U,   OFF u,
+ATHR  ON T,   OFF t,
+LOC   ON L,   OFF l,
+EXPED ON E,   OFF e,
+APPR  ON R,   OFF r,
+
+EFIS LEDs:
+FD    ON 51,  OFF 50,
+LS    ON 41,  OFF 40,
+CSTR  ON 31,  OFF 30,
+WPT   ON 21,  OFF 20,
+VORD  ON 11,  OFF 10,
+NDB   ON 01,  OFF 00,
+ARPT  ON !1,  OFF !0,
+
+----------------------------------------------------------------
+
+DISPLAYS
+
+Speed           Sxxx,
+Heading         Hxxx,
+Altitude        Axxxxx,
+Vertical Speed  Vxxxx,
+QNH             #xxxx,
+
+Values must be continuously resent.
+
+----------------------------------------------------------------
+
+MANAGED MODES
+
+Speed dashes    d,
+Heading dashes  h,
+Speed dot       z, ON / x, OFF
+Altitude dot    a, ON / b, OFF
+
+----------------------------------------------------------------
+
+KEEP-ALIVE
+
+Commands:
+6,  Poll / watchdog
+C,  Global refresh
+
+Recommended interval: 500 to 1000 ms
+
+----------------------------------------------------------------
+
+UNDOCUMENTED COMMANDS
+
+Frequently observed:
+i, o, w, v, x, s, q
+
+Likely synchronization or no-op markers used to prevent buffer stalls.
+
+----------------------------------------------------------------
+
+SUMMARY
+
+- MiniFCU is event-driven and stateless
+- PC is the single source of truth
+- Redundancy is intentional
+- Protocol favors robustness over efficiency
+
+----------------------------------------------------------------
 
 Reverse engineered for interoperability and educational purposes.
