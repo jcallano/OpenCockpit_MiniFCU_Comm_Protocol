@@ -1,310 +1,139 @@
-MiniFCU Interface Protocol Specification
-
-Version 2.1 – Extended Analysis (Flight-Level Dump)
-
-This document consolidates all currently known information about the MiniFCU / MiniEFIS
-communication protocol. It is based on reverse engineering, serial sniffing, and a full
-gate-to-gate flight dump including all user interactions.
-
-The focus of this revision is a clear separation between INPUTS (hardware → PC) and
-OUTPUTS (PC → hardware), and an explanation of the runtime behavior observed during
-active operation versus idle state.
-
-PHYSICAL LAYER
-
-Interface: USB Serial (CH340 chipset)
-Baud rate: 9600 bps
-Data bits: 8
-Parity: None
-Stop bits: 1
-Flow control: None
-
-IMPORTANT:
-DTR and RTS lines must be asserted (TRUE / High) or the MiniFCU microcontroller
-will not power up or respond.
-
-PROTOCOL OVERVIEW
-
-Encoding: ASCII text
-
-Delimiter rules:
-
-Hardware → PC frames end with ';'
-
-PC → Hardware frames end with ','
-
-Multiple PC → HW commands are commonly chained into bursts.
-Hardware never sends chained commands; each input event is atomic.
-
-Protocol characteristics:
-
-No checksums
-
-No acknowledgments
-
-No error frames
-
-No persistent hardware state
-
-All intelligence resides on the PC side.
-
-COMMUNICATION PHILOSOPHY
-
-The MiniFCU is a stateless, event-driven device.
-
-Principles confirmed by flight-level dumps:
-
-Hardware reports only user actions
-
-Hardware does not track modes or states
-
-PC software continuously refreshes LEDs and displays
-
-PC does not trust previously sent hardware state
-
-During active flight, traffic is dominated by refresh bursts, not by events.
-
-TRAFFIC CLASSES (OBSERVED)
-
-Class A – Input Events (HW → PC)
-
-Triggered only by physical interaction
-
-Single short frame
-
-Immediate transmission
-
-Example: "62;" (EFIS FD button pressed)
-
-Class B – Reactive Bursts (PC → HW)
-
-Triggered after every input event
-
-Multiple commands in sequence
-
-Reassert LEDs, dots, dashes and displays
-
-Class C – Refresh Cycles (PC → HW)
-
-Periodic, even without interaction
-
-Higher frequency during flight
-
-Full state repaint
-
-INPUTS (HARDWARE → PC)
-
-All inputs are event-based.
-Each frame ends with ';'.
-
-5.1 Encoders
-
-Speed:
-
-Increment: 13;
-
-Decrement: 14;
-
-Heading:
-
-Increment: 3;
-
-Decrement: 4;
-
-Altitude:
-
-Increment: 17;
-
-Decrement: 18;
-
-Vertical Speed:
-
-Increment: 21;
-
-Decrement: 22;
-
-Barometer / QNH:
-
-Absolute value report: 101,value;
-
-Notes:
-
-Rapid rotation produces bursts of events
-
-No debounce must be applied
-
-Each event represents a physical detent
-
-5.2 Push / Pull Actions
-
-Speed:
-
-Push: 11;
-
-Pull: 12;
-
-Heading:
-
-Push: 1;
-
-Pull: 2;
-
-Altitude:
-
-Push: 15;
-
-Pull: 16;
-
-Vertical Speed:
-
-Push (Level-Off): 19;
-
-5.3 Autopilot Buttons
-
-AP1 : 50;
-AP2 : 51;
-ATHR : 52;
-LOC : 53;
-EXPED : 54;
-APPR : 55;
-
-5.4 EFIS Buttons
-
-FD : 62;
-LS : 63;
-CSTR : 64;
-WPT : 65;
-VORD : 66;
-NDB : 67;
-ARPT : 68;
-
-OUTPUTS (PC → HARDWARE)
-
-All outputs are commands ending with ','.
-They are typically sent in bursts.
-
-6.1 LEDs (Toggle Logic)
-
-Autopilot LEDs:
-
-AP1 : ON = P, OFF = p,
-
-AP2 : ON = U, OFF = u,
-
-ATHR : ON = T, OFF = t,
-
-LOC : ON = L, OFF = l,
-
-EXPED : ON = E, OFF = e,
-
-APPR : ON = R, OFF = r,
-
-EFIS LEDs:
-
-FD : ON = 51, OFF = 50,
-
-LS : ON = 41, OFF = 40,
-
-CSTR : ON = 31, OFF = 30,
-
-WPT : ON = 21, OFF = 20,
-
-VORD : ON = 11, OFF = 10,
-
-NDB : ON = 01, OFF = 00,
-
-ARPT : ON = !1, OFF = !0,
-
-6.2 Displays (7-Segment)
-
-Speed : Sxxx,
-Heading : Hxxx,
-Altitude : Axxxxx,
-Vertical SPD : Vxxxx,
-QNH : #xxxx,
-
-6.3 Managed Modes
-
-Speed:
-
-Dot ON : z,
-
-Dot OFF : x,
-
-Dashes : d,
-
-Heading:
-
-Dot ON : m,
-
-Dot OFF : s,
-
-Dashes : h,
-
-Altitude:
-
-Dot ON : a,
-
-Dot OFF : b,
-
-6.4 Undocumented Synchronization Commands
-
-Observed commands:
-
-i,
-
-o,
-
-Behavior:
-
-Sent only PC → HW
-
-No visible hardware effect
-
-No response generated
-
-Appear frequently in bursts
-
-Interpretation:
-Internal driver synchronization / buffer keep-alive.
-These commands must be preserved when re-implementing the protocol.
-
-ACTIVE FLIGHT OBSERVATIONS
-
-From a full flight dump (takeoff to landing):
-
-Every user event triggers a refresh burst
-
-PC reasserts full state repeatedly
-
-Push + rotate sequences produce longer bursts
-
-QNH encoder sends absolute values only
-
-Hardware never reports state changes, only actions
-
-DESIGN IMPLICATIONS
-
-Recommended architecture:
-
-MiniFCU hardware: event source only
-
-ESP32-S3: transparent Serial ↔ SLIP ↔ JSON bridge
-
-Node-RED / PC software:
-
-Maintains full logical state
-
-Drives LEDs and displays
-
-Publishes state to MQTT
-
-The MiniFCU must be treated as a stateless peripheral.
-
-STATUS
-
-Input protocol: fully reverse engineered
-Output protocol: fully usable, synchronization commands required
-Remaining unknowns: none observed in full-flight dump
-
-This document represents the current best-known complete specification.
+# MiniFCU / MiniEFIS Interface Protocol Specification
+Version: 3.0 (Community Extended Edition)
+Based on: Reverse engineering, serial sniffing, and flight-cycle analysis.
+
+## 1. PHYSICAL LAYER & CONNECTION
+* **Interface:** USB Serial (CH340 chipset)
+* **Baud Rate:** 9600 bps
+* **Data Bits:** 8 | **Parity:** None | **Stop Bits:** 1
+* **Flow Control:** None
+* **Signal Requirement:** DTR and RTS lines must be asserted (TRUE/High) for the microcontroller to power up.
+
+---
+
+## 2. PROTOCOL OVERVIEW
+The communication is bidirectional, ASCII-based, and event-driven.
+
+* **PC to Hardware (Output):** Commands end with a comma `,`.
+    * *Example:* `A23000,` (Set Altitude to 23000)
+* **Hardware to PC (Input):** Events end with a semicolon `;`.
+    * *Example:* `17;` (Altitude Encoder increment)
+
+### 2.1 Communication Philosophy
+* **Stateless Hardware:** The MiniFCU hardware does not calculate values. It only reports physical actions (clicks/rotations).
+* **PC Authority:** The PC software is responsible for maintaining logic, values, and refreshing the display.
+* **Heartbeat Criticality:** Unlike previous assumptions, the hardware **requires** a heartbeat signal (`6,`) to stay active and will respond with a status echo (`9xx;`).
+
+---
+
+## 3. SYSTEM COMMANDS (PC -> HW)
+*Crucial for initialization and keeping the device alive.*
+
+| Command | Description | Usage / Frequency |
+| :--- | :--- | :--- |
+| **C,** | **Connect / Handshake** | Sent once at session start. Triggers Firmware ID response. |
+| **6,** | **Heartbeat / Keep-alive** | **CRITICAL.** Must be sent every ~500ms-1s. Hardware responds with `9xx` burst. |
+| **Bxxx,** | **Backlight Intensity** | `B1000,` (Max Brightness), `B100,` (Dimmed). |
+| **9,** | **Reset / Wake** | Observed during initialization bursts. |
+
+---
+
+## 4. INITIALIZATION SEQUENCE (Recommended)
+To ensure correct operation, the driver should follow this sequence upon connection:
+
+1.  Assert DTR/RTS.
+2.  Send `C,` (Wait for `901;` response).
+3.  Send Limits (observed in dump): `[6000,` `]-6000,` `n49000,`.
+4.  Send Initial Brightness: `B1000,`.
+5.  Begin Main Loop (Poll inputs, send `6,` heartbeat, update displays).
+
+---
+
+## 5. INPUTS (HARDWARE -> PC)
+*Events generated by user interaction.*
+
+### 5.1 Encoders (Rotary Knobs)
+*Note: Rapid rotation may produce bursts of commands.*
+
+| Function | Increment (CW) | Decrement (CCW) | Push | Pull |
+| :--- | :---: | :---: | :---: | :---: |
+| **Speed** | `13;` | `14;` | `11;` | `12;` |
+| **Heading** | `3;` | `4;` | `1;` | `2;` |
+| **Altitude** | `17;` | `18;` | `15;` | `16;` |
+| **V/S** | `21;` | `22;` | `19;` | N/A |
+
+### 5.2 Barometer (QNH)
+The QNH encoder behaves differently, sending absolute values or specific source IDs.
+* **Format:** `101,value;` OR `102,value;`
+* *Note: Driver should parse both `101` and `102` as valid QNH inputs.*
+
+### 5.3 Buttons (Momentary)
+| Button | Code | Button | Code |
+| :--- | :--- | :--- | :--- |
+| **AP1** | `50;` | **FD** | `62;` |
+| **AP2** | `51;` | **LS** | `63;` |
+| **A/THR** | `52;` | **CSTR** | `64;` |
+| **LOC** | `53;` | **WPT** | `65;` |
+| **EXPED** | `54;` | **VOR.D** | `66;` |
+| **APPR** | `55;` | **NDB** | `67;` |
+| **OFF (Alt)**| `10;` | **ARPT** | `68;` |
+
+### 5.4 System Responses (HW -> PC)
+* **`9xx;` Series (Heartbeat Echo):** Sent by HW in response to `6,`.
+    * Examples: `952;` (A/THR Active), `962;` (FD Active).
+    * *Interpretation:* Hardware reporting currently lit LEDs back to PC.
+* **Firmware IDs:** `901;`, `956;`, `959;` (Sent after `C,`).
+
+---
+
+## 6. OUTPUTS (PC -> HARDWARE)
+*Commands to update displays and LEDs.*
+
+### 6.1 7-Segment Displays
+| Display | Command Format | Example |
+| :--- | :--- | :--- |
+| **Speed** | `Sxxx,` | `S250,` |
+| **Heading** | `Hxxx,` | `H180,` |
+| **Altitude** | `Axxxxx,` | `A32000,` |
+| **Vertical Speed**| `Vxxxx,` | `V-1500,` |
+| **QNH** | `#xxxx,` | `#1013,` |
+
+### 6.2 LCD Segments & Managed Modes
+| Feature | Command | Description |
+| :--- | :--- | :--- |
+| **Speed Dot** | `z,` (ON) / `x,` (OFF) | Managed Speed indicator |
+| **Hdg Dot** | `m,` (ON) / `s,` (OFF) | Managed Heading indicator |
+| **Alt Dot** | `a,` (ON) / `b,` (OFF) | Managed Altitude indicator |
+| **Speed Dashes** | `d,` | Displays `---` on Speed window |
+| **Hdg Dashes** | `h,` | Displays `---` on Heading window |
+| **Alt/VS Dashes**| `D,` | Displays `---` (observed in dump for Alt/VS) |
+| **Icons/Flags** | `w,`, `v,`, `q,` | Auxiliary LCD segments (LVL/CH, V/S, etc.) |
+
+### 6.3 LEDs (Illumination)
+*Logic: Upper Case = ON, Lower Case = OFF*
+
+| LED | ON | OFF | LED | ON | OFF |
+| :--- | :-: | :-: | :--- | :-: | :-: |
+| **AP1** | `P,` | `p,` | **FD** | `51,`| `50,`|
+| **AP2** | `U,` | `u,` | **LS** | `41,`| `40,`|
+| **A/THR** | `T,` | `t,` | **CSTR** | `31,`| `30,`|
+| **LOC** | `L,` | `l,` | **WPT** | `21,`| `20,`|
+| **EXPED** | `E,` | `e,` | **VORD** | `11,`| `10,`|
+| **APPR** | `R,` | `r,` | **NDB** | `01,`| `00,`|
+| | | | **ARPT** | `!1,`| `!0,`|
+
+---
+
+## 7. CONFIGURATION LIMITS (PC -> HW)
+*Sent during initialization to define display/encoder boundaries.*
+
+* `[6000,` : Set Max Positive V/S (+6000)
+* `]-6000,`: Set Max Negative V/S (-6000)
+* `n49000,`: Set Max Altitude (49000 ft)
+
+---
+
+## 8. KNOWN ISSUES / NOTES
+1.  **Parsing Strategy:** Always buffer input until `;` is received. Do not rely on fixed lengths.
+2.  **Burst Handling:** The hardware may send multiple commands in one packet (e.g., `99;95;952;`). The parser must split by `;`.
+3.  **Ambiguity:** Commands like `B100` vs `B1000`. Parsers must respect the comma delimiter `,` to distinguish valid commands.
