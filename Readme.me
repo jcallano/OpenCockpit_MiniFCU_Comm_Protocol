@@ -1,20 +1,19 @@
 MiniFCU / MiniEFIS Serial Protocol
-Reverse Engineering Documentation by @jcallano
-Version: 1.0
-Last updated: 2025-Dec
-Target aircraft: Airbus A320 (tested with Fenix A320 for MSFS 2020)
+Reverse Engineering Notes by @jcallano
+Version: 1.1 (reverse engineering to share with community)
+Last updated: 2026-Jan-01
+Target aircraft - hardware - software : Minicockpit minifcus+cap efis Airbus A320-fenix A320 -MSFS2020
 
 DISCLAIMER
-----------
-This document is the result of my work reverse engineering the protocol to share with the community of sim enthusiast.
-It is NOT official documentation and is not affiliated with any hardware
-manufacturer or aircraft add-on developer.
 
+This document is the result of reverse engineering work using man in the middle atack technic.
+It is NOT official documentation and is not affiliated with any hardware manufacturer or aircraft add-on developer.
+May have errors.
 Use at your own risk.
 
-
 ============================================================
-1. PHYSICAL LAYER & CONNECTION
+
+PHYSICAL LAYER & CONNECTION
 ============================================================
 
 Interface:
@@ -32,334 +31,403 @@ Critical Power Requirement:
 - If DTR/RTS are not set, the microcontroller does not power up
 
 Notes:
-- Only one application can open the COM port at a time (Windows limitation)
-- Tested on Windows with pySerial
-
+- Only one application can open the COM port at a time (typical Windows limitation)
+- Confirmed working with pySerial and vendor software
+- The panel behaves like a “dumb” USB-serial device: all logic is PC-side
 
 ============================================================
 2. PROTOCOL OVERVIEW
-============================================================
 
-The protocol is:
+Protocol characteristics:
 - ASCII-based
 - Token-oriented
 - Event-driven
-- Stateless on the hardware side
+- The panel is effectively stateless (no flight logic, no mode authority)
 
-The MiniFCU / MiniEFIS hardware is NOT intelligent.
-It does NOT calculate values or keep logical state.
+Core philosophy:
+- Hardware reports physical actions (buttons/encoders) and sometimes absolute knob values
+- Hardware does NOT:
+- Calculate aircraft values
+- Maintain managed/selected logic
+- Decide LED states
+- Maintain synchronization on its own
+- PC software must:
+- Maintain full FCU/EFIS state
+- Decide which LEDs/segments are ON/OFF
+- Refresh displays (continuous or on change)
+- Repaint the panel after reconnect/power-up
 
-All logic and authority reside on the PC side.
+============================================================
+3. MESSAGE FRAMING, DIRECTION, AND DELIMITERS
 
-------------------------------------------------------------
-2.1 Message Direction and Delimiters
-------------------------------------------------------------
+PC -> Hardware (Output):
+- Each token MUST end with a comma ","
+- Example:
+A32000,
 
-PC → Hardware (Output):
-- Each command/token MUST end with a comma ","
-
-Example:
-  A32000,
-
-Hardware → PC (Input):
-- Each event MUST end with a semicolon ";"
-
-Example:
-  17;
+Hardware -> PC (Input):
+- Each event frame MUST end with a semicolon ";"
+- Example:
+17;
 
 Important:
 - Bursts may contain multiple tokens/events
-- Parsers MUST split by delimiter, not by fixed length
-
-
-============================================================
-3. COMMUNICATION PHILOSOPHY
-============================================================
-
-- Hardware reports ONLY physical actions:
-  - Button presses
-  - Encoder rotations
-  - Encoder push/pull
-  - QNH absolute values
-
-- Hardware does NOT:
-  - Know current values
-  - Track managed/selected modes
-  - Decide LED states
-  - Maintain synchronization
-
-- PC software must:
-  - Maintain the full FCU/EFIS state
-  - Decide which LEDs are ON/OFF
-  - Refresh displays continuously or on change
-  - Repaint the panel after power-up or reconnect
-
+- Always parse by delimiter ("," for TX tokens, ";" for RX frames)
+- Do NOT assume fixed-length messages
+- A single RX frame can contain comma-separated fields, e.g.:
+CODE,VALUE;
+or other multi-field forms depending on firmware behavior
 
 ============================================================
-4. STARTUP SEQUENCE (MANDATORY)
-============================================================
+4. STARTUP SEQUENCE (MANDATORY FOR RELIABLE BEHAVIOR)
 
-After opening the serial port and asserting DTR/RTS,
-the following sequence MUST be executed in order.
+After opening the serial port and asserting DTR/RTS, execute:
 
-------------------------------------------------------------
 4.1 Handshake Command
-------------------------------------------------------------
-
 Command:
-  C,
-
+C,
 Purpose:
 - Wakes up firmware
 - Some units respond with firmware IDs (e.g. 901; 956; 959;)
-- Some units respond with nothing
-
+- Some units may emit a build/date stamp-like number (example observed: 20251113;)
+- Some units may respond with nothing
 IMPORTANT:
 - A response is NOT guaranteed
 - Software MUST NOT abort if no response is received
 
-------------------------------------------------------------
-4.2 Initialization Burst (Limits & Internal State)
-------------------------------------------------------------
+4.2 Initialization Burst (limits & scaling)
+The following tokens MUST be sent after C, (order matters):
 
-The following commands MUST be sent after C, :
-
-Q400,
-K100,
--99,
-+10,
-n49000,
-b100,
-[6000,
-]-6000,
-Z9900,
-X-9900,
-I,
-Y,
-W,
-O,
-{1,
-(3248,
-}2200,
-=1100,
-$745,
-%0,
+  Q400,
+  K100,
+  -99,
+  +10,
+  n49000,
+  b100,
+  [6000,
+  ]-6000,
+  Z9900,
+  X-9900,
+  I,
+  Y,
+  W,
+  O,
+  {1,
+  (3248,
+  }2200,
+  =1100,
+  $745,
+  %0,
 
 Notes:
-- Order matters
-- These commands define internal limits and scaling
-- Without this burst, encoders and displays may behave incorrectly
+  - Without this burst, encoders/displays may behave incorrectly
+  - These tokens define internal limits and scaling used by the panel/firmware
 
-------------------------------------------------------------
-4.3 Power-Up State Synchronization Burst
-------------------------------------------------------------
 
-After initialization, the PC must repaint the entire panel.
-
-Observed reference burst:
-
-#1013,
-{1,@1,
-51,40,30,20,10,00,!0,
-#1013,
-Y,
-A1000,
-i,d,o,h,w,v,x,s,q,
-i,d,w,v,
-p,u,t,l,e,r,
-B1000,
-#1013,
-{1,@1,
-51,40,30,20,10,00,!0,
-#1013,
-
-Purpose:
-- Synchronize QNH display
-- Set EFIS to QNH mode
+4.3 Power-Up State Synchronization (repaint)
+After initialization, PC should repaint the entire panel:
+- Set BARO/QNH display mode and value
 - Initialize LEDs
 - Initialize LCD segments
 - Set backlight brightness
 
-Re-sending parts of the burst increases robustness.
+Observed repaint patterns include (examples only; your software may differ):
+  - QNH display update: #xxxx,
+  - Backlight: Bxxxx,
+  - LED set/clear tokens (upper/lowercase or numeric pairs)
+  - Segment tokens (i, d, o, h, w, v, x, s, q, Y, etc.)
 
+Robustness note:
+  - Re-sending parts of the repaint burst increases resilience after reconnect
 
 ============================================================
-5. HARDWARE → PC INPUT EVENTS
+5. ENCODERS (5 TOTAL) AND EVENT VARIANTS
+
+The MiniFCU has five physical rotary encoders:
+- BARO (altimetric setting)
+- SPEED
+- HEADING
+- ALTITUDE
+- VERTICAL SPEED / FLIGHT PATH ANGLE (dual behavior)
+
+Encoder event variants (important for parser design):
+A) Absolute reporting:
+- CODE,VALUE;
+- VALUE is an absolute knob/display value as understood by the PC-side logic.
+- Common for many rotations once a value is initialized.
+
+B) Step-only reporting (no value field):
+   - CODE;
+   - Observed when the knob is rotated before a value has been initialized/displayed
+   - PC should interpret this as a relative step or trigger a repaint to initialize the display value.
+
+C) Absolute with prefix (BARO inHg):
+   - CODE,_####;
+   - Underscore prefix has been observed for inHg mode values (inHg * 100).
+
+
+Implementation guidance:
+- Parse RX by ';' frames.
+- For each frame:
+- Split by ',' into fields.
+- If there is 1 field: treat as a step/button event.
+- If there are 2 fields: treat as code + value (value may start with '_' and/or '-' sign).
+- Keep the parser tolerant: firmware revisions can shift which code is used for the same physical action.
+
 ============================================================
+6. HARDWARE -> PC INPUT EVENTS (KNOWN)
 
-------------------------------------------------------------
-5.1 Encoders
-------------------------------------------------------------
-
+6.1 FCU Encoders (baseline mapping)
 Speed:
-- CW:  13;
-- CCW: 14;
+- CW : 13;
+- CCW : 14;
 - Push: 11;
 - Pull: 12;
 
 Heading:
-- CW:  3;
-- CCW: 4;
-- Push: 1;
-- Pull: 2;
+  - CW  : 3;
+  - CCW : 4;
+  - Push: 1;
+  - Pull: 2;
 
 Altitude:
-- CW:  17;
-- CCW: 18;
-- Push: 15;
-- Pull: 16;
+  - CW  : 17;
+  - CCW : 18;
+  - Push: 15;
+  - Pull: 16;
 
-Vertical Speed:
-- CW:  21;
-- CCW: 22;
-- Push: 19;
-- Push: 20;
+Vertical Speed / FPA:
+  - CW  : 21;
+  - CCW : 22;
+  - Push: 19;
+  - Pull: 20;
 
-------------------------------------------------------------
-5.2 Altitude Increment Buttons
-------------------------------------------------------------
+Note:
+  - In real logs, rotations may appear as CODE,VALUE; (absolute), not only CODE;.
 
-- 59; → ALT increment = 100 ft
-- 60; → ALT increment = 1000 ft
 
-These buttons do NOT control LEDs.
-They only change how the PC should interpret ALT encoder steps.
+6.2 Altitude Increment Buttons
+- 59; -> ALT increment = 100 ft
+- 60; -> ALT increment = 1000 ft
+Notes:
+- These do NOT control LEDs directly.
+- They inform the PC how to interpret ALT encoder step size.
 
-------------------------------------------------------------
-5.3 Push Buttons
-------------------------------------------------------------
+6.3 Push Buttons (FCU)
+- AP1 : 50;
+- AP2 : 51;
+- A/THR : 52;
+- LOC : 53;
+- EXPED : 54; (variant seen in some setups: 554;)
+- APPR : 55;
 
-AP1     : 50;
-AP2     : 51;
-A/THR   : 52;
-LOC     : 53;
-EXPED   : 54;
-APPR    : 55;
+Additional FCU buttons (observed / mapped):
+- SPD/MACH            : 56;
+- HDG/TRK and VS/FPA  : 57;
+- METRIC              : 58;
 
-EFIS:
-FD      : 62;
-LS      : 63;
-CSTR    : 64;
-WPT     : 65;
-VOR.D   : 66;
-NDB     : 67;
-ARPT    : 68;
 
-Buttons are momentary.
-PC decides how to interpret them (toggle, hold, etc.).
+6.4 EFIS Push Buttons
+- FD : 62;
+- LS : 63;
+- CSTR : 64;
+- WPT : 65;
+- VOR.D : 66;
+- NDB : 67;
+- ARPT : 68;
 
-------------------------------------------------------------
-5.4 QNH Encoder
-------------------------------------------------------------
+6.5 EFIS Selectors (ND MODE / ND RANGE)
+ND MODE selector positions:
+- 71; 72; 73; 74; 75; 76;
 
-Formats:
-- 101,value;
-- 102,value;
+ND RANGE selector positions:
+  - 80; 81; 82; 83; 84; 85;
 
-Where "value" is the absolute QNH number.
 
-PC should accept BOTH 101 and 102 as valid QNH sources.
+6.6 RADIO selectors (observed)
+Radio selector 1:
+- 77; 78; 79;
 
+Radio selector 2:
+  - 86; 87; 88;
+
+Notes:
+  - Additional related numeric codes may appear during these interactions (firmware/software dependent).
+
+
+6.7 BARO / QNH Encoder and Units (IMPORTANT)
+Absolute BARO value events (hPa-like values around 1000):
+- 101,VALUE;
+- 102,VALUE;
+Notes:
+- VALUE is the absolute BARO number (typically hPa)
+- Accept both 101 and 102 as valid BARO sources.
+
+BARO units + inHg absolute values:
+  - When BARO is in inHg mode, absolute reporting may appear as:
+      103,_####;
+      104,_####;
+    Where #### represents inHg * 100 (e.g., 29.77 inHg -> _2977).
+
+Uninitialized BARO behavior (step-only):
+  - If BARO value has not been initialized on the panel display, rotating the BARO knob can emit:
+      103;
+      104;
+  Meaning:
+    - Encoder rotation detected, but no absolute value yet.
+  PC-side recommended behavior:
+    - Treat as a relative step OR immediately repaint by pushing the current simulator BARO value to the panel,
+      which initializes the display and enables absolute reporting.
+
+BARO knob push/pull (observed mapping):
+  - Push: 70;
+  - Pull: 69;
+
+Practical note:
+  - The exact CW/CCW association between 103 vs 104 should be verified per unit/firmware.
+
+
+6.8 Buttons are momentary
+- Events represent physical press only.
+- PC decides how to interpret them (toggle, hold, managed vs selected logic, etc.).
 
 ============================================================
-6. PC → HARDWARE OUTPUT COMMANDS
-============================================================
+7. PC -> HARDWARE OUTPUT COMMANDS (KNOWN)
 
-------------------------------------------------------------
-6.1 Displays
-------------------------------------------------------------
-
+7.1 Displays
 Speed:
-  Sxxx,
-
+- Sxxx,
 Heading:
-  Hxxx,
-
+- Hxxx,
 Altitude:
-  Axxxxx,
+- Axxxxx,
+Vertical Speed / FPA display:
+- F####, (observed used by vendor software; includes sign, e.g., F-700, F1000, F0,)
+QNH / BARO display:
+- #xxxx,
 
-Vertical Speed:
-  Vxxxx,
+7.2 Managed / Selected Indicators & LCD Segments (observed)
+Examples of segment tokens:
+- z, / x, -> Speed managed dot ON / OFF (observed)
+- m, / s, -> Heading managed dot ON / OFF (observed)
+- a, / b, -> Altitude managed dot ON / OFF (observed)
+- d, -> Speed dashes "---" (observed)
+- h, -> Heading dashes "---" (observed)
+- D, -> Altitude / VS dashes "---" (observed)
+- Other observed tokens: i, o, w, v, x, s, q, Y
+Notes:
+- Exact semantics may vary across firmware revisions.
+- Treat these as “panel segments/annunciators” controlled entirely by PC.
 
-QNH:
-  #xxxx,
-
-------------------------------------------------------------
-6.2 Managed / Selected Indicators & LCD Segments
-------------------------------------------------------------
-
-Observed commands:
-
-z, / x,   → Speed managed dot ON / OFF
-m, / s,   → Heading managed dot ON / OFF
-a, / b,   → Altitude managed dot ON / OFF
-d,        → Speed dashes "---"
-h,        → Heading dashes "---"
-D,        → Altitude / VS dashes "---"
-
-Other observed segment tokens:
-i, o, w, v, x, s, q, Y
-
-Exact semantics may vary by firmware revision.
-
-------------------------------------------------------------
-6.3 LEDs
-------------------------------------------------------------
-
-Rule:
+7.3 LEDs
+General rule (observed):
 - Uppercase = LED ON
 - Lowercase = LED OFF
 
 Autopilot / FCU LEDs:
-P / p  → AP1
-U / u  → AP2
-T / t  → A/THR
-L / l  → LOC
-E / e  → EXPED
-R / r  → APPR
+  - P / p  -> AP1
+  - U / u  -> AP2
+  - T / t  -> A/THR
+  - L / l  -> LOC
+  - E / e  -> EXPED
+  - R / r  -> APPR
 
-EFIS LEDs:
-51 / 50 → FD
-41 / 40 → LS
-31 / 30 → CSTR
-21 / 20 → WPT
-11 / 10 → VOR.D
-01 / 00 → NDB
-!1 / !0 → ARPT
+EFIS LEDs (numeric pairs, observed mapping):
+  - 51 / 50  -> FD
+  - 41 / 40  -> LS
+  - 31 / 30  -> CSTR
+  - 21 / 20  -> WPT
+  - 11 / 10  -> VOR.D
+  - 01 / 00  -> NDB
+  - !1 / !0  -> ARPT
 
-------------------------------------------------------------
-6.4 Backlight
-------------------------------------------------------------
 
+7.4 Backlight
 Command:
-  Bxxxx,
-
+- Bxxxx,
 Example:
-  B1000,  (maximum brightness)
+- B1000, (maximum brightness)
 
+7.5 BARO LCD mode forcing (IMPORTANT)
+Force showing the BARO/QNH numeric value on the QNH LCD:
+- {1,
+- @1,
+
+Force showing STD on the QNH LCD:
+  - {0,
+  - @2,
+
+Notes:
+  - These tokens appear to control what the BARO LCD is presenting (value vs STD).
+  - The PC should drive these modes based on simulator state and user actions.
 
 ============================================================
-7. IMPLEMENTATION NOTES
+8. PC-SIDE “RESYNC / REFRESH” COMMANDS (OBSERVED)
+
+Some Windows software repeatedly sends tokens such as:
+- C,
+- 6,
+- (sometimes) 9,
+
+Interpretation:
+- These appear to be application-level refresh/resynchronization triggers used by the PC software to keep the
+panel congruent with simulator state and its own internal model.
+- These are NOT required by the hardware to keep the serial channel open, so they should not be described as
+“heartbeats” at the transport level.
+
+Follow-on status-like bursts:
+- After some of these refresh tokens, the panel may emit numeric bursts such as:
+94; 95; 98; 99;
+952; 953; 954; 955;
+960; 962; 963;
+970; 972;
+980; 982;
+plus handshake/ID events like:
+901; 956; 959;
+- These appear to be firmware/status-like outputs rather than user inputs.
+- Parse them (do not crash), but treat them as non-user events unless proven otherwise.
+
 ============================================================
+9. IMPLEMENTATION NOTES (PARSER AND ROBUSTNESS)
 
-- Always parse input by delimiter (';')
-- Never assume fixed-length messages
-- Bursts may contain multiple events
-- Hardware does NOT need continuous keep-alive
-- Polling is a PC-side design choice only
-- Repainting the full panel after reconnect is strongly recommended
+Parsing rules (recommended):
+- RX:
+- Accumulate bytes into a buffer
+- Split frames by ';'
+- For each frame:
+- Trim whitespace
+- Split by ','
+- If one field: event code only
+- If two fields: code + value (value may be negative and/or start with '_')
+- Never assume fixed length
+- TX:
+- Ensure every token ends with ','
+
+Repaint strategy:
+- On connect and on any suspected desync, repaint the panel:
+- All displays (SPD/HDG/ALT/VS/FPA and BARO/QNH)
+- All LEDs
+- Required segments/managed dots
+- Backlight
+- BARO LCD mode (value vs STD)
+
+Firmware variation:
+- Expect small differences in numeric codes and which codes carry values.
+- Keep the parser tolerant and maintain an “unknown code logger” for future mapping.
 
 ============================================================
-8. STATUS
+10. OPEN ITEMS / UNKNOWNs (TO BE EXTENDED NEXT SESSION)
+
+QNH / QFE LEDs:
+- There are QNH and QFE indicator LEDs on the BARO panel area.
+- The output command(s) that control these LEDs have not been identified yet.
+- Recommended discovery method:
+- Capture PC->HW traffic while toggling QNH vs QFE in the vendor software
+- Diff the repaint bursts to find the unique token(s) controlling those LEDs
+
+Additional status-like numeric bursts:
+- The meaning of 94/95/98/99 and 95x/96x/97x/98x families is still unknown.
+- They appear during PC-driven refresh sequences (C, / 6, / 9,).
+
 ============================================================
-
-This protocol has been:
-- Observed via serial sniffing
-- Validated with real hardware
-- Tested with Fenix A320 in MSFS 2020
-
-Contributions, corrections, and confirmations from other developers
-are welcome.
-
 END OF DOCUMENT
-
