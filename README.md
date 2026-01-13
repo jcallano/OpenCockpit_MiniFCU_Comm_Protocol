@@ -1,3 +1,14 @@
+> [!CAUTION]
+> ## This repository is deprecated
+> This project has been merged into the unified **OpenCockpit Wireless Bus** repository.
+>
+> **New repository:** https://github.com/jcallano/opencockpit-wireless-bus
+>
+> Please use the new repository for the latest code and documentation.
+> This repository will no longer receive updates.
+
+---
+
 # OpenCockpit MiniFCU Communication Protocol
 
 Reverse Engineering and Wireless Bridge Implementation for Minicockpit MiniFCU/MiniEFIS
