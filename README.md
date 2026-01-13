@@ -137,13 +137,66 @@ This project provides:
 - **PC → Hardware:** Tokens end with comma `,` (e.g., `S100,`)
 - **Hardware → PC:** Frames end with semicolon `;` (e.g., `17;`)
 
-### Startup Sequence
+### Message Framing
 
-1. **Handshake:** Send `C,` - Device responds with firmware IDs
-2. **Initialization Burst:** Configure limits and scaling
-3. **Repaint:** Set all displays, LEDs, and segments
+- **TX (PC→HW):** Accumulate tokens, each ending with `,`
+- **RX (HW→PC):** Split frames by `;`, then split fields by `,`
+- Do NOT assume fixed-length messages
+- A single RX frame can contain comma-separated fields: `CODE,VALUE;`
+
+---
+
+### Startup Sequence (MANDATORY)
+
+After opening serial port and asserting DTR/RTS:
+
+#### 1. Handshake Command
+```
+C,
+```
+- Wakes up firmware
+- May respond with firmware IDs: `901;956;959;`
+- May respond with build stamp: `20251113;`
+- **Response is NOT guaranteed - do not abort if no response**
+
+#### 2. Initialization Burst (limits & scaling)
+The following tokens MUST be sent after `C,` (order matters):
+```
+Q400,
+K100,
+-99,
++10,
+n49000,
+b100,
+[6000,
+]-6000,
+Z9900,
+X-9900,
+I,
+Y,
+W,
+O,
+{1,
+(3248,
+}2200,
+=1100,
+$745,
+%0,
+```
+**Without this burst, encoders/displays may behave incorrectly.**
+
+#### 3. Power-Up State Synchronization (Repaint)
+After initialization, repaint the entire panel:
+- Set BARO/QNH display mode and value
+- Initialize all LEDs
+- Initialize LCD segments
+- Set backlight brightness
+
+---
 
 ### Input Events (Hardware → PC)
+
+#### FCU Encoders
 
 | Function | CW | CCW | Push | Pull |
 |----------|-----|-----|------|------|
@@ -151,24 +204,153 @@ This project provides:
 | Heading | 3; | 4; | 1; | 2; |
 | Altitude | 17; | 18; | 15; | 16; |
 | VS/FPA | 21; | 22; | 19; | 20; |
-| BARO | 101,val; | 102,val; | 70; | 69; |
 
-**FCU Buttons:** AP1(50), AP2(51), A/THR(52), LOC(53), EXPED(54), APPR(55)
-**EFIS Buttons:** FD(62), LS(63), CSTR(64), WPT(65), VOR.D(66), NDB(67), ARPT(68)
+**Encoder Event Variants:**
+- **Absolute:** `CODE,VALUE;` - VALUE is absolute knob position
+- **Step-only:** `CODE;` - Rotation before value initialized
+- **inHg prefix:** `CODE,_####;` - Underscore for inHg values (×100)
+
+#### BARO Encoder
+
+| Event | Code |
+|-------|------|
+| CW (hPa) | 101,VALUE; |
+| CCW (hPa) | 102,VALUE; |
+| CW (inHg) | 103,_VALUE; |
+| CCW (inHg) | 104,_VALUE; |
+| Push | 70; |
+| Pull | 69; |
+
+#### Altitude Increment Buttons
+- `59;` → ALT increment = 100 ft
+- `60;` → ALT increment = 1000 ft
+
+#### FCU Push Buttons
+
+| Button | Code |
+|--------|------|
+| AP1 | 50; |
+| AP2 | 51; |
+| A/THR | 52; |
+| LOC | 53; |
+| EXPED | 54; (variant: 554;) |
+| APPR | 55; |
+| SPD/MACH | 56; |
+| HDG/TRK + VS/FPA | 57; |
+| METRIC | 58; |
+
+#### EFIS Push Buttons
+
+| Button | Code |
+|--------|------|
+| FD | 62; |
+| LS | 63; |
+| CSTR | 64; |
+| WPT | 65; |
+| VOR.D | 66; |
+| NDB | 67; |
+| ARPT | 68; |
+
+#### EFIS Selectors
+
+**ND MODE selector:** `71; 72; 73; 74; 75; 76;`
+
+**ND RANGE selector:** `80; 81; 82; 83; 84; 85;`
+
+**Radio selector 1:** `77; 78; 79;`
+
+**Radio selector 2:** `86; 87; 88;`
+
+---
 
 ### Output Commands (PC → Hardware)
+
+#### Displays
 
 | Command | Example | Description |
 |---------|---------|-------------|
 | `Sxxx,` | `S280,` | Speed display |
 | `Hxxx,` | `H084,` | Heading display |
 | `Axxxxx,` | `A35000,` | Altitude display |
-| `Fxxxx,` | `F-700,` | VS/FPA display |
+| `Fxxxx,` | `F-700,` | VS/FPA display (with sign) |
 | `#xxxx,` | `#1013,` | QNH/BARO display |
 | `Bxxxx,` | `B1000,` | Backlight brightness |
 
-**LED Control:** Uppercase = ON, Lowercase = OFF
-- AP1(P/p), AP2(U/u), A/THR(T/t), LOC(L/l), EXPED(E/e), APPR(R/r)
+#### Managed/Selected Indicators & LCD Segments
+
+| Token | Meaning |
+|-------|---------|
+| `z,` / `x,` | Speed managed dot ON/OFF |
+| `m,` / `s,` | Heading managed dot ON/OFF |
+| `a,` / `b,` | Altitude managed dot ON/OFF |
+| `d,` | Speed dashes "---" |
+| `h,` | Heading dashes "---" |
+| `D,` | Altitude/VS dashes "---" |
+| `i,o,w,v,x,s,q,Y` | Other segment controls |
+
+#### LEDs (Uppercase = ON, Lowercase = OFF)
+
+**FCU LEDs:**
+| LED | ON | OFF |
+|-----|-----|-----|
+| AP1 | P | p |
+| AP2 | U | u |
+| A/THR | T | t |
+| LOC | L | l |
+| EXPED | E | e |
+| APPR | R | r |
+
+**EFIS LEDs (numeric pairs):**
+| LED | ON | OFF |
+|-----|-----|-----|
+| FD | 51 | 50 |
+| LS | 41 | 40 |
+| CSTR | 31 | 30 |
+| WPT | 21 | 20 |
+| VOR.D | 11 | 10 |
+| NDB | 01 | 00 |
+| ARPT | !1 | !0 |
+
+#### BARO LCD Mode
+
+| Token | Mode |
+|-------|------|
+| `{1,` `@1,` | Show BARO value |
+| `{0,` `@2,` | Show STD |
+
+---
+
+### PC-Side Refresh Commands
+
+Some software repeatedly sends:
+- `C,` - Handshake/wake
+- `6,` - Status poll
+
+After these, panel may emit status bursts: `94; 95; 98; 99; 952; 960; 970; 980;`
+
+---
+
+### Implementation Notes
+
+**Parsing Rules:**
+- RX: Split by `;`, then by `,`
+- TX: Ensure every token ends with `,`
+- Keep parser tolerant of firmware variations
+
+**Repaint Strategy:**
+On connect or suspected desync, repaint:
+- All displays (SPD/HDG/ALT/VS/BARO)
+- All LEDs
+- Segments/managed dots
+- Backlight
+- BARO LCD mode
+
+---
+
+### Open Items / Unknowns
+
+- QNH/QFE indicator LED commands not yet identified
+- Status burst meanings (94/95/98/99 families) unknown
 
 ---
 
